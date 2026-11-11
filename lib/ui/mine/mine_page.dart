@@ -10,6 +10,7 @@ import '../app_scope.dart';
 import '../detail/detail_page.dart';
 import '../downloads/downloads_page.dart';
 import '../history/history_page.dart';
+import '../live/live_page.dart';
 import '../shell/app_shell.dart';
 import '../settings/settings_page.dart';
 import '../theme/motion.dart';
@@ -74,6 +75,12 @@ class MinePage extends StatelessWidget {
 
   Widget _settings(BuildContext context) => _SettingsEntry(
     onTap: () => openPage<void>(context, (_) => SettingsPage(store: store)),
+  );
+
+  Widget _live(BuildContext context) => _SettingsEntry(
+    title: '直播',
+    icon: Icons.live_tv_outlined,
+    onTap: () => openPage<void>(context, (_) => LivePage(store: store)),
   );
 
   Widget _poster(
@@ -149,6 +156,11 @@ class MinePage extends StatelessWidget {
         const SizedBox(height: 16),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _live(context),
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
           child: _settings(context),
         ),
       ],
@@ -179,6 +191,8 @@ class MinePage extends StatelessWidget {
               _DownloadCard(downloads: downloads),
             ],
             const SizedBox(height: 16),
+            _live(context),
+            const SizedBox(height: 12),
             _settings(context),
           ],
         );
@@ -304,6 +318,17 @@ class MinePage extends StatelessWidget {
                         subtitle:
                             '${store.profile.admin ? '管理员' : '普通用户'} · 切换用户',
                         onTap: () => openUsers(context, store),
+                      ),
+                    ),
+                    Expanded(
+                      child: _TelevisionEntry(
+                        icon: Icons.live_tv_outlined,
+                        title: '直播',
+                        subtitle: '卫视频道与直播源',
+                        onTap: () => openPage<void>(
+                          context,
+                          (_) => LivePage(store: store),
+                        ),
                       ),
                     ),
                     Expanded(
@@ -589,8 +614,14 @@ class _DownloadCard extends StatelessWidget {
 }
 
 class _SettingsEntry extends StatelessWidget {
-  const _SettingsEntry({required this.onTap});
+  const _SettingsEntry({
+    required this.onTap,
+    this.title = '设置',
+    this.icon = Icons.settings_outlined,
+  });
   final VoidCallback onTap;
+  final String title;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
@@ -610,15 +641,11 @@ class _SettingsEntry extends StatelessWidget {
               child: Row(
                 spacing: 14,
                 children: [
-                  Icon(
-                    Icons.settings_outlined,
-                    size: 22,
-                    color: colors.onSurfaceVariant,
-                  ),
-                  const Expanded(
+                  Icon(icon, size: 22, color: colors.onSurfaceVariant),
+                  Expanded(
                     child: Text(
-                      '设置',
-                      style: TextStyle(
+                      title,
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w500,
                       ),

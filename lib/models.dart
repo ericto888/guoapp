@@ -69,13 +69,72 @@ class SourceSite {
   ];
   static const knownValues = [...primaryValues, ...restrictedValues];
   static const allValues = [...primaryValues, ...restrictedValues];
-  static const values = allSourcesEnabled ? knownValues : [hongguo];
-  static bool isAvailable(String id) => values.any((site) => site.id == id);
-  static bool isKnown(String id) => allValues.any((site) => site.id == id);
+
+  /// 内置源：默认版只开放红果，全站源版开放全部。
+  static const builtinValues = allSourcesEnabled ? knownValues : [hongguo];
+
+  /// 运行期注册的自定义源（苹果CMS 采集站）。
+  static final List<SourceSite> customValues = [];
+
+  static List<SourceSite> get values => [...builtinValues, ...customValues];
+
+  static bool isCustomId(String id) => id.startsWith('custom:');
+
+  static bool isAvailable(String id) =>
+      values.any((site) => site.id == id) || isCustomId(id);
+  static bool isKnown(String id) =>
+      allValues.any((site) => site.id == id) || isCustomId(id);
   static bool isRestricted(String id) =>
       restrictedValues.any((site) => site.id == id);
-  static SourceSite byId(String id) =>
-      allValues.firstWhere((site) => site.id == id, orElse: () => hongguo);
+
+  static void registerCustomSources(Iterable<SourceSite> sites) {
+    customValues
+      ..clear()
+      ..addAll(sites.where((site) => isCustomId(site.id)));
+  }
+
+  static SourceSite byId(String id) {
+    for (final site in customValues) {
+      if (site.id == id) return site;
+    }
+    if (isCustomId(id)) return SourceSite(id, '自定义源', '自定义站源');
+    return allValues.firstWhere((site) => site.id == id, orElse: () => hongguo);
+  }
+}
+
+/// 用户录入的自定义源：苹果CMS 采集接口。
+class CustomSourceSite {
+  const CustomSourceSite({
+    required this.id,
+    required this.name,
+    required this.base,
+    this.api = '',
+  });
+  final String id;
+  final String name;
+
+  /// 用户填写的站点地址。
+  final String base;
+
+  /// 已探测到的采集接口地址，空表示首次使用时再探测。
+  final String api;
+
+  factory CustomSourceSite.fromJson(Map<String, dynamic> json) =>
+      CustomSourceSite(
+        id: json['id'] as String? ?? '',
+        name: json['name'] as String? ?? '',
+        base: json['base'] as String? ?? '',
+        api: json['api'] as String? ?? '',
+      );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'base': base,
+    if (api.isNotEmpty) 'api': api,
+  };
+
+  SourceSite get site => SourceSite(id, name, '自定义源 · 苹果CMS');
 }
 
 class SourceGroup {

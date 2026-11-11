@@ -189,6 +189,28 @@ abstract class AppRepository {
 
   /// 本机取流服务是否仍可接受连接；iOS 挂起后监听失效，只能重建播放器。
   Future<bool> playbackAlive() async => true;
+
+  /// 自定义源（苹果CMS 采集站）管理。
+  Future<List<CustomSourceSite>> customSources() async => const [];
+  Future<void> loadCustomSources() async {}
+  Future<CustomSourceSite> addCustomSource(
+    String name,
+    String base, {
+    String api = '',
+  }) async => throw AppFailure('当前环境不支持自定义源');
+  Future<CustomSourceSite> updateCustomSource(
+    String id, {
+    String name = '',
+    String base = '',
+    String api = '',
+  }) async => throw AppFailure('当前环境不支持自定义源');
+  Future<void> removeCustomSource(String id) async =>
+      throw AppFailure('当前环境不支持自定义源');
+  Future<Map<String, dynamic>> importCustomSources(String content) async =>
+      throw AppFailure('当前环境不支持自定义源');
+  Future<String> exportCustomSources() async => throw AppFailure('当前环境不支持自定义源');
+  Future<Map<String, dynamic>> analyzeCustomSource(String base) async =>
+      throw AppFailure('当前环境不支持自定义源');
 }
 
 class NativeRepository extends AppRepository {
@@ -406,6 +428,101 @@ class NativeRepository extends AppRepository {
       throw AppFailure('当前用户仅支持在线观看');
     }
   }
+
+  void _customPermission() {
+    if (access != null && (access!.locked || !access!.profile.admin)) {
+      throw AppFailure('仅管理员可管理自定义源');
+    }
+  }
+
+  /// 把原生注册表里的自定义源同步到 Dart 侧站源列表。
+  Future<void> _syncCustomSources() async {
+    final sites = await customSources();
+    SourceSite.registerCustomSources(sites.map((site) => site.site));
+  }
+
+  @override
+  Future<void> loadCustomSources() async {
+    try {
+      await _syncCustomSources();
+    } catch (_) {
+      // 自定义源属于增强信息，加载失败不影响启动。
+    }
+  }
+
+  @override
+  Future<List<CustomSourceSite>> customSources() async {
+    final result = await _call({'action': 'customSources'});
+    return [
+      for (final item in (result['items'] as List? ?? const []))
+        if (item is Map)
+          CustomSourceSite.fromJson(Map<String, dynamic>.from(item)),
+    ];
+  }
+
+  @override
+  Future<CustomSourceSite> addCustomSource(
+    String name,
+    String base, {
+    String api = '',
+  }) async {
+    _customPermission();
+    final result = await _call({
+      'action': 'addCustomSource',
+      'name': name,
+      'base': base,
+      'api': api,
+    });
+    await _syncCustomSources();
+    return CustomSourceSite.fromJson(result);
+  }
+
+  @override
+  Future<CustomSourceSite> updateCustomSource(
+    String id, {
+    String name = '',
+    String base = '',
+    String api = '',
+  }) async {
+    _customPermission();
+    final result = await _call({
+      'action': 'updateCustomSource',
+      'id': id,
+      'name': name,
+      'base': base,
+      'api': api,
+    });
+    await _syncCustomSources();
+    return CustomSourceSite.fromJson(result);
+  }
+
+  @override
+  Future<void> removeCustomSource(String id) async {
+    _customPermission();
+    await _call({'action': 'removeCustomSource', 'id': id});
+    await _syncCustomSources();
+  }
+
+  @override
+  Future<Map<String, dynamic>> importCustomSources(String content) async {
+    _customPermission();
+    final result = await _call({
+      'action': 'importCustomSources',
+      'content': content,
+    });
+    await _syncCustomSources();
+    return result;
+  }
+
+  @override
+  Future<String> exportCustomSources() async {
+    final result = await _call({'action': 'exportCustomSources'});
+    return result['content'] as String? ?? '';
+  }
+
+  @override
+  Future<Map<String, dynamic>> analyzeCustomSource(String base) async =>
+      _call({'action': 'analyzeCustomSource', 'base': base});
 
   @override
   Future<List<String>> suggestions(String query) async {
@@ -775,6 +892,7 @@ class NativeRepository extends AppRepository {
         DramaSeason.fromJson(Map<String, dynamic>.from(row as Map)),
     ];
   }
+
   @override
   Future<PlaybackPlan> resolve(
     Drama drama,

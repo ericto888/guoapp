@@ -86,7 +86,20 @@ func providerChapterID(source, sourceID, chapterKey string) string {
 }
 
 func splitProviderDramaID(id string) (source, sourceID string, ok bool) {
-	source, sourceID, ok = strings.Cut(strings.TrimSpace(id), ":")
+	id = strings.TrimSpace(id)
+	// 自定义源 ID 形如 custom:<源哈希>:<剧集 ID>，按第一段冒号切分会把源 ID 切断。
+	if strings.HasPrefix(strings.ToLower(id), customSourcePrefix) {
+		source, sourceID, ok = strings.Cut(id, ":")
+		if !ok {
+			return "", "", false
+		}
+		source, sourceID, ok = strings.Cut(sourceID, ":")
+		if !ok || strings.TrimSpace(sourceID) == "" {
+			return "", "", false
+		}
+		return customSourcePrefix + strings.TrimSpace(source), strings.TrimSpace(sourceID), true
+	}
+	source, sourceID, ok = strings.Cut(id, ":")
 	source = canonicalProviderSource(source)
 	if !ok || strings.TrimSpace(sourceID) == "" || !isHuangguoProviderSource(source) {
 		return "", "", false
@@ -95,7 +108,11 @@ func splitProviderDramaID(id string) (source, sourceID string, ok bool) {
 }
 
 func isHuangguoProviderSource(source string) bool {
-	switch canonicalProviderSource(source) {
+	source = canonicalProviderSource(source)
+	if isCustomMaccmsSource(source) {
+		return true
+	}
+	switch source {
 	case sourceHuangguoAI, sourceHuangguoVideo, sourceHuangdou, sourceHongguo, sourceHuangju, sourceYeguo, sourceJinguoDuanju, sourceJinguo, sourceDSD, sourceCloudFront, sourceSorani, sourceGuipian, sourceHanxiaoquan, sourceHeitao, sourceBeabox, sourceZuid, sourceFfzy, sourceRycj, sourceXvideos:
 		return true
 	default:
@@ -105,6 +122,14 @@ func isHuangguoProviderSource(source string) bool {
 
 func canonicalProviderSource(source string) string {
 	trimmed := strings.ToLower(strings.TrimSpace(source))
+	// 自定义源保持 custom:<哈希> 形态；多余的第三段（剧集 ID）在这里丢掉。
+	if strings.HasPrefix(trimmed, customSourcePrefix) {
+		rest := strings.TrimPrefix(trimmed, customSourcePrefix)
+		if id, _, found := strings.Cut(rest, ":"); found {
+			return customSourcePrefix + strings.TrimSpace(id)
+		}
+		return customSourcePrefix + strings.TrimSpace(rest)
+	}
 	if isHuangdouHost(trimmed) {
 		return sourceHuangdou
 	}

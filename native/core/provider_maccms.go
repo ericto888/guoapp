@@ -51,8 +51,15 @@ type maccmsPage struct {
 }
 
 func maccmsSiteOf(source string) (maccmsSite, bool) {
-	site, found := maccmsSites[canonicalProviderSource(source)]
-	return site, found
+	source = canonicalProviderSource(source)
+	if site, found := maccmsSites[source]; found {
+		return site, true
+	}
+	// 自定义源与内置采集站共用同一套解析，记录在运行时注册表里。
+	if record, found := customSourceRecordOf(source); found {
+		return customSourceSite(record), true
+	}
+	return maccmsSite{}, false
 }
 
 func maccmsNumber(value any) int {
@@ -82,8 +89,43 @@ func (d *Downloader) maccmsRequest(ctx context.Context, source string, params ur
 	if !ok {
 		return maccmsPage{}, errors.New("站源未接入采集接口")
 	}
-	address := site.APIBase + "/api.php/provide/vod/?" + params.Encode()
-	body, err := d.fetchProviderText(ctx, address, site.SiteBase+"/")
+	return d.maccmsRequestAt(ctx, site, params)
+}
+
+// maccmsRequestAt 对给定站点发起采集请求。自定义源只填了站点根地址时，
+// 依次尝试标准接口候选，命中的端点会记进注册表，后续请求直接复用。
+func (d *Downloader) maccmsRequestAt(ctx context.Context, site maccmsSite, params url.Values) (maccmsPage, error) {
+	candidates := []string{site.APIBase}
+	if isCustomMaccmsSource(site.Source) {
+		candidates = customMaccmsCandidates(site.APIBase)
+	}
+	var lastErr error
+	for _, endpoint := range candidates {
+		page, err := d.maccmsRequestEndpoint(ctx, site, endpoint, params)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if isCustomMaccmsSource(site.Source) {
+			if engine := nativeEngineSnapshot(); engine != nil && engine.customSources != nil {
+				engine.customSources.rememberAPI(site.Source, endpoint)
+			}
+		}
+		return page, nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("%s接口返回格式异常", site.Name)
+	}
+	return maccmsPage{}, lastErr
+}
+
+func (d *Downloader) maccmsRequestEndpoint(ctx context.Context, site maccmsSite, endpoint string, params url.Values) (maccmsPage, error) {
+	address := strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if !isMaccmsEndpointURL(address) {
+		address += "/api.php/provide/vod"
+	}
+	address += "/?" + params.Encode()
+	body, err := d.fetchProviderText(ctx, address, strings.TrimRight(site.SiteBase, "/")+"/")
 	if err != nil {
 		return maccmsPage{}, err
 	}
@@ -98,25 +140,106 @@ func (d *Downloader) maccmsRequest(ctx context.Context, source string, params ur
 
 // fetchMaccmsCategories 读取站点分类，仅保留影视类目并保持站点顺序。
 func (d *Downloader) fetchMaccmsCategories(ctx context.Context, source string) ([]nativeCategory, error) {
+	site, ok := maccmsSiteOf(source)
+	if !ok {
+		return nil, errors.New("站源未接入采集接口")
+	}
 	page, err := d.maccmsRequest(ctx, source, url.Values{"ac": {"list"}})
 	if err != nil {
 		return nil, err
 	}
-	items := make([]nativeCategory, 0, len(page.Class))
-	seen := map[string]bool{}
-	for _, class := range page.Class {
-		id := mapString(class, "type_id")
-		name := strings.TrimSpace(mapString(class, "type_name"))
-		if !maccmsIDPattern.MatchString(id) || seen[id] || !maccmsCategoryNames[name] {
-			continue
-		}
-		seen[id] = true
-		items = append(items, nativeCategory{ID: id, Name: name})
-	}
+	items := maccmsCategories(page.Class, isCustomMaccmsSource(source))
 	if len(items) == 0 {
-		return nil, fmt.Errorf("%s暂未返回影视分类", maccmsSites[source].Name)
+		return nil, fmt.Errorf("%s暂未返回影视分类", site.Name)
 	}
 	return items, nil
+}
+
+// maccmsCategories 从 ac=list 的 class 里挑出可用于浏览的分类。
+// 内置采集站用白名单；自定义源各站分类命名不一，用「非父分类 + 影视关键词」筛选。
+func maccmsCategories(rows []map[string]any, custom bool) []nativeCategory {
+	items := make([]nativeCategory, 0, len(rows))
+	seen := map[string]bool{}
+	if !custom {
+		for _, class := range rows {
+			id := mapString(class, "type_id")
+			name := strings.TrimSpace(mapString(class, "type_name"))
+			if !maccmsIDPattern.MatchString(id) || seen[id] || !maccmsCategoryNames[name] {
+				continue
+			}
+			seen[id] = true
+			items = append(items, nativeCategory{ID: id, Name: name})
+		}
+		return items
+	}
+	parents := map[string]bool{}
+	entries := make([]nativeCategory, 0, len(rows))
+	for _, class := range rows {
+		id := mapString(class, "type_id")
+		name := strings.TrimSpace(mapString(class, "type_name"))
+		if !maccmsIDPattern.MatchString(id) || name == "" || seen[id] {
+			continue
+		}
+		if parent := mapString(class, "type_pid"); parent != "" && parent != "0" {
+			parents[parent] = true
+		}
+		seen[id] = true
+		entries = append(entries, nativeCategory{ID: id, Name: name})
+	}
+	for _, entry := range entries {
+		if parents[entry.ID] || maccmsParentNames[entry.Name] {
+			continue
+		}
+		if maccmsCustomCategoryBlocked(entry.Name) {
+			continue
+		}
+		if maccmsCustomCategoryHinted(entry.Name) {
+			items = append(items, entry)
+		}
+	}
+	if len(items) > 0 {
+		return items
+	}
+	// 分类命名完全不沾影视关键词时，退回全部叶子分类。
+	for _, entry := range entries {
+		if !parents[entry.ID] && !maccmsParentNames[entry.Name] && !maccmsCustomCategoryBlocked(entry.Name) {
+			items = append(items, entry)
+		}
+	}
+	return items
+}
+
+func maccmsCustomCategoryHinted(name string) bool {
+	for _, hint := range maccmsCategoryHints {
+		if strings.Contains(name, hint) {
+			return true
+		}
+	}
+	return false
+}
+
+func maccmsCustomCategoryBlocked(name string) bool {
+	for _, blocked := range maccmsCategoryBlocklist {
+		if strings.Contains(name, blocked) {
+			return true
+		}
+	}
+	return false
+}
+
+var maccmsCategoryHints = []string{
+	"电影", "片", "剧", "综艺", "动漫", "动画", "纪录", "短剧", "体育", "少儿", "喜剧", "脱口秀", "番剧",
+}
+
+var maccmsCategoryBlocklist = []string{
+	"演员", "明星", "专题", "福利", "资讯", "新闻", "排行", "榜单", "解说", "花絮", "预告",
+}
+
+// maccmsParentNames 没有 type_pid 的站点只能靠名称识别父分类：
+// 父分类点进去通常是空列表，留在标签里会让人以为源坏了。
+var maccmsParentNames = map[string]bool{
+	"电影": true, "电视剧": true, "连续剧": true, "综艺": true, "动漫": true, "动画": true,
+	"片库": true, "电影片": true, "连续剧片": true, "综艺片": true, "动漫片": true, "高清": true,
 }
 
 func (d *Downloader) fetchMaccmsCatalogPage(ctx context.Context, source string, page int, category, query string) ([]Drama, bool, error) {

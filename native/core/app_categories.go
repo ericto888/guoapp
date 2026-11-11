@@ -84,12 +84,24 @@ func validNativeCategory(source, category string) bool {
 	case sourceXvideos:
 		return validXvideosCategory(category)
 	}
+	if isCustomMaccmsSource(source) {
+		return validMaccmsCategory(category)
+	}
 	return false
 }
 
 func (engine *nativeEngine) nativeCategories(ctx context.Context, source string, force bool) ([]nativeCategory, error) {
 	source = canonicalProviderSource(source)
 	all := []nativeCategory{{Name: "全部"}}
+	if isCustomMaccmsSource(source) {
+		categories, err := engine.downloader.fetchMaccmsCategories(ctx, source)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, categories...)
+		engine.rememberCategories(source, all)
+		return all, nil
+	}
 	switch source {
 	case sourceHongguo:
 		for _, genre := range hongguoAppGenres {

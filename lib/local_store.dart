@@ -318,6 +318,9 @@ class LocalStore extends ChangeNotifier {
     _ => !SourceSite.isRestricted(source),
   };
 
+  /// 自定义源变更后刷新界面上的站源列表。
+  void refreshSources() => notifyListeners();
+
   Future<void> setSourceEnabled(String source, bool enabled) {
     if (!SourceSite.isAvailable(source)) {
       return Future.error(StateError('站源无效'));

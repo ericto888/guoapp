@@ -23,6 +23,12 @@ type providerMedia struct {
 
 func (d *Downloader) providerBaseURL(source string) string {
 	source = canonicalProviderSource(source)
+	if isCustomMaccmsSource(source) {
+		if record, found := customSourceRecordOf(source); found {
+			return customSourceOrigin(record.Base)
+		}
+		return ""
+	}
 	var configured, fallback string
 	switch source {
 	case sourceHuangguoAI:

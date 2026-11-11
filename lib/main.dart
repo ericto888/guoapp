@@ -119,6 +119,7 @@ class _AppBootstrapState extends State<AppBootstrap>
       final preferences = await SharedPreferences.getInstance();
       await _refreshDevice();
       await repository.initialize();
+      await repository.loadCustomSources();
       final support = await getApplicationSupportDirectory();
       final local = await LocalStore.open(
         preferences,

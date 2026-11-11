@@ -20,6 +20,7 @@ import '../widgets/form_text_field.dart';
 import '../widgets/group_card.dart';
 import 'appearance_settings.dart';
 import 'backup_actions.dart';
+import 'custom_sources_page.dart';
 import 'diary_view.dart';
 import 'settings_rows.dart';
 import 'sources_view.dart';
@@ -332,6 +333,15 @@ class SettingsSection extends StatelessWidget {
             ),
           ],
         ),
+      SettingsCard(
+        children: [
+          SettingsTile(
+            title: '自定义源',
+            subtitle: '添加苹果CMS采集站',
+            onTap: () => open('自定义源', (_) => CustomSourcesPage(store: store)),
+          ),
+        ],
+      ),
       SettingsCard(
         children: [
           ?_editorError(),

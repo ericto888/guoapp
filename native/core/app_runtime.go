@@ -136,6 +136,11 @@ type nativeInput struct {
 	Version         string                  `json:"version"`
 	Since           string                  `json:"since"`
 	Account         soraniAccountInput      `json:"account"`
+	Name            string                  `json:"name"`
+	Base            string                  `json:"base"`
+	API             string                  `json:"api"`
+	Content         string                  `json:"content"`
+	ID              string                  `json:"id"`
 }
 
 type nativeCatalogResult struct {
@@ -194,6 +199,7 @@ type nativeEngine struct {
 	playbackCancel   context.CancelFunc
 	sourceCatalogMu  sync.Mutex
 	sourceCatalogs   map[string]chan struct{}
+	customSources    *customMaccmsRegistry
 }
 
 var nativeState struct {
@@ -306,6 +312,8 @@ func newNativeEngine(directory, downloads string) (*nativeEngine, error) {
 	if filepath.IsAbs(downloads) {
 		engine.defaultDownloads = filepath.Clean(downloads)
 	}
+	engine.customSources = newCustomMaccmsRegistry(directory)
+	engine.customSources.load()
 	engine.loadResourceSettings()
 	d.loadRankingCache()
 	engine.loadCatalogCache()
@@ -390,6 +398,21 @@ func nativeDispatch(input nativeInput) (any, error) {
 		ctx = work
 	}
 	switch input.Action {
+	case "customSources":
+		return map[string]any{"items": engine.customMaccmsSources()}, nil
+	case "addCustomSource":
+		return engine.addCustomMaccmsSource(input.Name, input.Base, input.API)
+	case "updateCustomSource":
+		return engine.updateCustomMaccmsSource(input.ID, input.Name, input.Base, input.API)
+	case "removeCustomSource":
+		return true, engine.removeCustomMaccmsSource(input.ID)
+	case "importCustomSources":
+		return engine.importCustomMaccmsSources(input.Content)
+	case "exportCustomSources":
+		content, err := engine.exportCustomMaccmsSources()
+		return map[string]any{"content": content, "filename": "custom-sources.json"}, err
+	case "analyzeCustomSource":
+		return engine.analyzeCustomSource(input.Base)
 	case "updateSystemProxy":
 		return true, engine.updateSystemProxy(input.SystemProxy)
 	case "resourceSettings":
@@ -638,6 +661,17 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 		result.HasMore = more
 		return result, nil
 	}
+	if query != "" && isCustomMaccmsSource(source) {
+		items, more, err := d.fetchMaccmsCatalogPage(ctx, source, page, "", query)
+		if err != nil {
+			return result, err
+		}
+		for _, drama := range items {
+			result.Items = append(result.Items, nativeNormalize(drama))
+		}
+		result.HasMore = more
+		return result, nil
+	}
 	if query != "" && source == sourceXvideos {
 		items, more, err := d.fetchXvideosCatalogPage(ctx, page, "", query)
 		if err != nil {
@@ -699,91 +733,95 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 	}
 	var items []Drama
 	var err error
-	switch source {
-	case sourceHongguo:
-		if strings.HasPrefix(category, hongguoTagPrefix) {
-			items, result.HasMore, err = d.fetchHongguoTagPage(ctx, category, page)
-			break
-		}
-		engine.mu.Lock()
-		known := make(map[string]bool, len(engine.catalogs[cacheKey]))
-		for _, drama := range engine.catalogs[cacheKey] {
-			known[drama.ID] = true
-		}
-		engine.mu.Unlock()
-		ctx = context.WithValue(ctx, libraryKnownKey{}, known)
-		if page > 1 {
-			ctx = context.WithValue(ctx, libraryMoreKey{}, true)
-		}
-		items, err = d.fetchHongguoAppCatalogCategory(ctx, category)
-		state := d.hongguoCatalogSnapshot()
-		result.hongguo = state
-		result.HasMore = hongguoCatalogHasMore(state)
-		if category != "" && state != nil {
-			result.HasMore = !state.Feeds["category:"+category].Exhausted
-		}
-		if len(items) == 0 && err != nil && ctx.Err() == nil && (category == "" || category == "short_play") {
-			var totalPages int
-			items, totalPages, err = d.fetchHongguoCategoryPage(ctx, "real-drama?page="+strconv.Itoa(page), "真人剧")
-			result.HasMore = page < totalPages
-		}
-	case sourceHuangdou:
-		client := newHuangdouAPIClient(d)
-		var decoded any
-		err = client.call(ctx, "/drama/list", map[string]any{"page": strconv.Itoa(page), "page_size": "30"}, &decoded)
-		if err == nil {
-			rows := huangdouList(decoded)
-			for _, row := range rows {
-				if drama := huangdouDramaFromMap(row); drama.ID != "" {
-					items = append(items, drama)
-				}
-			}
-			result.HasMore = len(rows) >= 30
-		}
-	case sourceHuangguoAI:
-		items, result.HasMore, err = d.fetchHuangguoAICatalogPage(ctx, page, category)
-	case sourceHuangju:
-		items, result.HasMore, err = d.fetchHuangjuCatalogPage(ctx, page, category, "")
-	case sourceYeguo:
-		items, result.HasMore, err = d.fetchYeguoCatalogPage(ctx, page, category, "")
-	case sourceJinguoDuanju:
-		items, result.HasMore, err = d.fetchJinguoDuanjuCatalogPage(ctx, page, category, "")
-	case sourceJinguo:
-		items, result.HasMore, err = d.fetchJinguoCatalogPage(ctx, page, category, "")
-	case sourceDSD:
-		items, result.HasMore, err = d.fetchDSDCatalogPage(ctx, page, category, "")
-	case sourceSorani:
-		items, result.HasMore, err = d.fetchSoraniCatalogPage(ctx, page, category, "")
-	case sourceGuipian:
-		items, result.HasMore, err = d.fetchGuipianCatalogPage(ctx, page, category, "")
-	case sourceHanxiaoquan:
-		items, result.HasMore, err = d.fetchHanxiaoquanCatalogPage(ctx, page, category, "")
-	case sourceHeitao:
-		items, result.HasMore, err = d.fetchHeitaoCatalogPage(ctx, page, category, "")
-	case sourceBeabox:
-		items, result.HasMore, err = d.fetchBeaboxCatalogPage(ctx, page, category, "")
-	case sourceZuid, sourceFfzy, sourceRycj:
+	if isCustomMaccmsSource(source) {
 		items, result.HasMore, err = d.fetchMaccmsCatalogPage(ctx, source, page, category, "")
-	case sourceXvideos:
-		items, result.HasMore, err = d.fetchXvideosCatalogPage(ctx, page, category, "")
-	case sourceHuangguoVideo:
-		address := fmt.Sprintf("%s/videos?page=%d", d.providerBaseURL(source), page)
-		if category != "" {
-			address += "&category=" + url.QueryEscape(category)
+	} else {
+		switch source {
+		case sourceHongguo:
+			if strings.HasPrefix(category, hongguoTagPrefix) {
+				items, result.HasMore, err = d.fetchHongguoTagPage(ctx, category, page)
+				break
+			}
+			engine.mu.Lock()
+			known := make(map[string]bool, len(engine.catalogs[cacheKey]))
+			for _, drama := range engine.catalogs[cacheKey] {
+				known[drama.ID] = true
+			}
+			engine.mu.Unlock()
+			ctx = context.WithValue(ctx, libraryKnownKey{}, known)
+			if page > 1 {
+				ctx = context.WithValue(ctx, libraryMoreKey{}, true)
+			}
+			items, err = d.fetchHongguoAppCatalogCategory(ctx, category)
+			state := d.hongguoCatalogSnapshot()
+			result.hongguo = state
+			result.HasMore = hongguoCatalogHasMore(state)
+			if category != "" && state != nil {
+				result.HasMore = !state.Feeds["category:"+category].Exhausted
+			}
+			if len(items) == 0 && err != nil && ctx.Err() == nil && (category == "" || category == "short_play") {
+				var totalPages int
+				items, totalPages, err = d.fetchHongguoCategoryPage(ctx, "real-drama?page="+strconv.Itoa(page), "真人剧")
+				result.HasMore = page < totalPages
+			}
+		case sourceHuangdou:
+			client := newHuangdouAPIClient(d)
+			var decoded any
+			err = client.call(ctx, "/drama/list", map[string]any{"page": strconv.Itoa(page), "page_size": "30"}, &decoded)
+			if err == nil {
+				rows := huangdouList(decoded)
+				for _, row := range rows {
+					if drama := huangdouDramaFromMap(row); drama.ID != "" {
+						items = append(items, drama)
+					}
+				}
+				result.HasMore = len(rows) >= 30
+			}
+		case sourceHuangguoAI:
+			items, result.HasMore, err = d.fetchHuangguoAICatalogPage(ctx, page, category)
+		case sourceHuangju:
+			items, result.HasMore, err = d.fetchHuangjuCatalogPage(ctx, page, category, "")
+		case sourceYeguo:
+			items, result.HasMore, err = d.fetchYeguoCatalogPage(ctx, page, category, "")
+		case sourceJinguoDuanju:
+			items, result.HasMore, err = d.fetchJinguoDuanjuCatalogPage(ctx, page, category, "")
+		case sourceJinguo:
+			items, result.HasMore, err = d.fetchJinguoCatalogPage(ctx, page, category, "")
+		case sourceDSD:
+			items, result.HasMore, err = d.fetchDSDCatalogPage(ctx, page, category, "")
+		case sourceSorani:
+			items, result.HasMore, err = d.fetchSoraniCatalogPage(ctx, page, category, "")
+		case sourceGuipian:
+			items, result.HasMore, err = d.fetchGuipianCatalogPage(ctx, page, category, "")
+		case sourceHanxiaoquan:
+			items, result.HasMore, err = d.fetchHanxiaoquanCatalogPage(ctx, page, category, "")
+		case sourceHeitao:
+			items, result.HasMore, err = d.fetchHeitaoCatalogPage(ctx, page, category, "")
+		case sourceBeabox:
+			items, result.HasMore, err = d.fetchBeaboxCatalogPage(ctx, page, category, "")
+		case sourceZuid, sourceFfzy, sourceRycj:
+			items, result.HasMore, err = d.fetchMaccmsCatalogPage(ctx, source, page, category, "")
+		case sourceXvideos:
+			items, result.HasMore, err = d.fetchXvideosCatalogPage(ctx, page, category, "")
+		case sourceHuangguoVideo:
+			address := fmt.Sprintf("%s/videos?page=%d", d.providerBaseURL(source), page)
+			if category != "" {
+				address += "&category=" + url.QueryEscape(category)
+			}
+			var body string
+			body, err = d.fetchProviderText(ctx, address, d.providerBaseURL(source)+"/")
+			if err == nil {
+				items = parseHuangguoVideoCards(body, address)
+			}
+			result.HasMore = len(items) >= 20
+		case sourceCloudFront:
+			items, result.HasMore, err = d.fetchLegacyCatalogCategoryPage(ctx, page, category)
 		}
-		var body string
-		body, err = d.fetchProviderText(ctx, address, d.providerBaseURL(source)+"/")
-		if err == nil {
-			items = parseHuangguoVideoCards(body, address)
-		}
-		result.HasMore = len(items) >= 20
-	case sourceCloudFront:
-		items, result.HasMore, err = d.fetchLegacyCatalogCategoryPage(ctx, page, category)
 	}
 	if err != nil && len(items) == 0 {
 		return result, err
 	}
-	if len(items) == 0 && page == 1 && source != sourceHuangju && source != sourceYeguo && source != sourceJinguoDuanju && source != sourceJinguo && source != sourceDSD && source != sourceSorani && source != sourceGuipian && source != sourceHanxiaoquan && source != sourceHeitao && source != sourceBeabox && source != sourceZuid && source != sourceFfzy && source != sourceRycj && source != sourceXvideos {
+	if len(items) == 0 && page == 1 && !isCustomMaccmsSource(source) && source != sourceHuangju && source != sourceYeguo && source != sourceJinguoDuanju && source != sourceJinguo && source != sourceDSD && source != sourceSorani && source != sourceGuipian && source != sourceHanxiaoquan && source != sourceHeitao && source != sourceBeabox && source != sourceZuid && source != sourceFfzy && source != sourceRycj && source != sourceXvideos {
 		return result, errors.New("站源暂未返回剧集，请稍后刷新")
 	}
 	if err != nil {
@@ -810,39 +848,43 @@ func (engine *nativeEngine) nativeDetail(ctx context.Context, drama nativeDrama)
 	var raw Drama
 	var chapters []Chapter
 	var err error
-	switch source {
-	case sourceHuangguoAI:
-		raw, chapters, err = engine.downloader.fetchHuangguoAIDetail(ctx, sourceID)
-	case sourceHuangguoVideo:
-		raw, chapters, err = engine.downloader.fetchHuangguoVideoDetail(ctx, sourceID)
-	case sourceCloudFront:
-		raw, chapters, err = engine.downloader.fetchLegacyDetail(ctx, sourceID)
-	case sourceHuangju:
-		raw, chapters, err = engine.downloader.fetchHuangjuDetail(ctx, sourceID)
-	case sourceYeguo:
-		raw, chapters, err = engine.downloader.fetchYeguoDetail(ctx, sourceID)
-	case sourceJinguoDuanju:
-		raw, chapters, err = engine.downloader.fetchJinguoDuanjuDetail(ctx, sourceID)
-	case sourceJinguo:
-		raw, chapters, err = engine.downloader.fetchJinguoDetail(ctx, sourceID)
-	case sourceDSD:
-		raw, chapters, err = engine.downloader.fetchDSDDetail(ctx, sourceID)
-	case sourceSorani:
-		raw, chapters, err = engine.downloader.fetchSoraniDetail(ctx, sourceID)
-	case sourceGuipian:
-		raw, chapters, err = engine.downloader.fetchGuipianDetail(ctx, sourceID)
-	case sourceHanxiaoquan:
-		raw, chapters, err = engine.downloader.fetchHanxiaoquanDetail(ctx, sourceID)
-	case sourceHeitao:
-		raw, chapters, err = engine.downloader.fetchHeitaoDetail(ctx, sourceID)
-	case sourceBeabox:
-		raw, chapters, err = engine.downloader.fetchBeaboxDetail(ctx, sourceID)
-	case sourceZuid, sourceFfzy, sourceRycj:
+	if isCustomMaccmsSource(source) {
 		raw, chapters, err = engine.downloader.fetchMaccmsDetail(ctx, source, sourceID)
-	case sourceXvideos:
-		raw, chapters, err = engine.downloader.fetchXvideosDetail(ctx, sourceID)
-	default:
-		title, chapters, err = engine.downloader.GetHuangguoChapters(ctx, source, sourceID)
+	} else {
+		switch source {
+		case sourceHuangguoAI:
+			raw, chapters, err = engine.downloader.fetchHuangguoAIDetail(ctx, sourceID)
+		case sourceHuangguoVideo:
+			raw, chapters, err = engine.downloader.fetchHuangguoVideoDetail(ctx, sourceID)
+		case sourceCloudFront:
+			raw, chapters, err = engine.downloader.fetchLegacyDetail(ctx, sourceID)
+		case sourceHuangju:
+			raw, chapters, err = engine.downloader.fetchHuangjuDetail(ctx, sourceID)
+		case sourceYeguo:
+			raw, chapters, err = engine.downloader.fetchYeguoDetail(ctx, sourceID)
+		case sourceJinguoDuanju:
+			raw, chapters, err = engine.downloader.fetchJinguoDuanjuDetail(ctx, sourceID)
+		case sourceJinguo:
+			raw, chapters, err = engine.downloader.fetchJinguoDetail(ctx, sourceID)
+		case sourceDSD:
+			raw, chapters, err = engine.downloader.fetchDSDDetail(ctx, sourceID)
+		case sourceSorani:
+			raw, chapters, err = engine.downloader.fetchSoraniDetail(ctx, sourceID)
+		case sourceGuipian:
+			raw, chapters, err = engine.downloader.fetchGuipianDetail(ctx, sourceID)
+		case sourceHanxiaoquan:
+			raw, chapters, err = engine.downloader.fetchHanxiaoquanDetail(ctx, sourceID)
+		case sourceHeitao:
+			raw, chapters, err = engine.downloader.fetchHeitaoDetail(ctx, sourceID)
+		case sourceBeabox:
+			raw, chapters, err = engine.downloader.fetchBeaboxDetail(ctx, sourceID)
+		case sourceZuid, sourceFfzy, sourceRycj:
+			raw, chapters, err = engine.downloader.fetchMaccmsDetail(ctx, source, sourceID)
+		case sourceXvideos:
+			raw, chapters, err = engine.downloader.fetchXvideosDetail(ctx, sourceID)
+		default:
+			title, chapters, err = engine.downloader.GetHuangguoChapters(ctx, source, sourceID)
+		}
 	}
 	if err != nil {
 		return nil, err

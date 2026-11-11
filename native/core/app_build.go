@@ -8,6 +8,10 @@ var errNativeBuildSource = errors.New("当前版本不包含此站源")
 
 func nativeSourceAvailable(source string) bool {
 	source = canonicalProviderSource(source)
+	// 自定义源由用户自己录入，不受编译期站源开关限制。
+	if isCustomMaccmsSource(source) {
+		return true
+	}
 	return source == sourceHongguo || buildAllSources == "true" && isHuangguoProviderSource(source)
 }
 
