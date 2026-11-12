@@ -688,10 +688,15 @@ void main() {
       expect(replacement.opened, isNotEmpty);
       // 重建必须用待机实例真实所在的位置，而不是硬编码 0。
       expect(replacement.opened.first.start, const Duration(seconds: 7));
-      // 挂住的实例被摘下待机位并释放，之后不再被 _prime 复用。
-      expect(player.disposed, isTrue);
+      // 挂住 stop 的实例先被摘下待机位；stop 仍挂起时绝不能提前 dispose，
+      // 否则会与仍在卸载的原生 mpv 并发（P0）。
+      expect(player.disposed, isFalse, reason: 'stop 挂起时不得与 dispose 并发');
       expect(standby.disposed, isTrue);
       expect(session.standbyIndex, -1);
+      // 放行挂起的 stop：底层操作真正结束后才释放该实例，不泄漏。
+      player.completeStop();
+      final releasedHung = await _waitFor(() => player.disposed);
+      expect(releasedHung, isTrue, reason: 'stop 结束后必须释放，不能泄漏');
     },
   );
 
@@ -915,7 +920,7 @@ void main() {
     expect(session.index, 1);
   });
 
-  test('待机预打开挂起：降级、释放实例，当前播放不受影响', () async {
+  test('待机预打开挂起：超时后不提前 dispose，open 真正结束才释放', () async {
     final repository = _PlaybackRepository();
     final store = await openStore();
     final standby = FakePlayer();
@@ -927,9 +932,16 @@ void main() {
     );
     standby.hangOpen = true;
     await _settle(player);
+    // 等超过超时时间：此时 open 仍挂在原生侧，实例绝不能被提前 dispose，
+    // 否则会与仍在执行的 open() 并发（P0）。
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await pumpEventQueue();
 
-    final released = await _waitFor(() => standby.disposed);
-    expect(released, isTrue, reason: '挂起的待机实例必须真正 dispose，不能泄漏');
+    expect(
+      standby.disposed,
+      isFalse,
+      reason: 'open 仍挂起时不得提前 dispose，避免与原生 open 并发',
+    );
     expect(session.standbyIndex, -1);
     expect(session.standby, isNull);
     expect(session.index, 0);
@@ -942,9 +954,11 @@ void main() {
     expect(session.index, 1);
     expect(session.error, isNull);
     expect(player.opened.length, greaterThan(1));
-    // 挂起的 open 放行后不得改写已切集后的状态。
+
+    // 放行挂起的 open：底层操作真正结束后才释放实例（不提前、不泄漏）。
     standby.completeAllOpens();
-    await pumpEventQueue();
+    final released = await _waitFor(() => standby.disposed);
+    expect(released, isTrue, reason: 'open 真正结束后必须释放，不能泄漏');
     expect(session.index, 1);
     expect(session.standby, isNull);
   });

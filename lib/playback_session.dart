@@ -352,6 +352,10 @@ class PlaybackSession extends ChangeNotifier {
   /// 待机播放器专属串行链：预打开 (open)、停止 (stop)、释放 (dispose) 必须
   /// 互斥，避免「open 进行中又被 stop/dispose」导致的实例状态错乱（P0）。
   Future<void> _standbyOps = Future<void>.value();
+
+  /// 已进入（或已完成）释放流程的实例：[_retire] 保证同一实例只 dispose 一次。
+  /// 用于消除「dispose() 与 open 超时清理同时 _retire 同一 standby」的二次释放。
+  final Set<Player> _retiring = <Player>{};
   int _index;
   int _openedIndex = -1;
   int _generation = 0;
@@ -510,9 +514,10 @@ class PlaybackSession extends ChangeNotifier {
       _error == null &&
       !player.state.buffering &&
       // 尺寸证据必须绑定当前画面代次：切集后上一集残留的宽高/aspect 不能
-      // 让新集的 frameReady 提前返回 true（旧实现会误判未出画的集已就绪）。
-      ((_aspectKnown && _aspectEpoch == _frameEpoch) ||
-          (player.state.width ?? 0) > 0);
+      // 让新集的 frameReady 提前返回 true。不再用 player.state.width 兜底——
+      // 宽度可能比视频轨参数更晚清零，会绕过代次校验误判新集已出画。
+      _aspectKnown &&
+      _aspectEpoch == _frameEpoch;
 
   /// 统一生命周期入口的当前阶段，供日志与测试观察。
   PlaybackLifecycleStage get lifecycleStage => _lifecycleStage;
@@ -1130,6 +1135,8 @@ class PlaybackSession extends ChangeNotifier {
   /// 仍在卸载音频/纹理的旧实例当成可用对象。等原 Future 真正结束再摘，
   /// 既不阻塞恢复链，也不留下无主实例。
   Future<void> _retire(Player target) async {
+    // 同一实例只允许释放一次：dispose() 与待机 open 超时清理可能同时请求释放。
+    if (!_retiring.add(target)) return;
     final watch = Stopwatch()..start();
     var retired = false;
     void retire() {
@@ -1900,26 +1907,30 @@ class PlaybackSession extends ChangeNotifier {
         ticket == _standbyTicket &&
         identical(_standbyPlan, plan) &&
         identical(_standby, standby);
+    // 捕获原始 open 任务：Future.timeout 只让等待方超时，不会取消它。
+    // 之后任何 stop/dispose 都必须等这个 Future 真正结束后再做，否则会与
+    // 仍在执行的「原生 open」并发（与 stop 超时→dispose 同一类 P0）。
+    final Future<void> opening = Future<void>(() async {
+      await _configure(standby, plan);
+      if (!current()) return;
+      // 待机播放器也保留完整缓存：限到 4MB 时高倍速/弱网切过去只缓冲了一两秒，
+      // 首帧播完就断流，表现为卡在第 1 秒。
+      await _limitCache(standby, false);
+      if (!current()) return;
+      // 待机只做预缓冲：禁用音频轨，预加载期不初始化音频输出。
+      // iOS 上 mpv 的 ao_audiounit 在卸载文件时会调用进程级
+      // AVAudioSession.setActive(NO)，待机实例若已启动音频输出会被
+      // 正在播的实例 stop 时一起杀掉，新集以音频为主时钟会定格在开头
+      // （上游 Xanerix/guoapp#94）。
+      await _setAudioTrackEnabled(standby, false);
+      if (!current()) return;
+      await standby.open(
+        Media(plan.url, httpHeaders: plan.headers),
+        play: false,
+      );
+    });
     try {
-      await Future<void>(() async {
-        await _configure(standby, plan);
-        if (!current()) return;
-        // 待机播放器也保留完整缓存：限到 4MB 时高倍速/弱网切过去只缓冲了一两秒，
-        // 首帧播完就断流，表现为卡在第 1 秒。
-        await _limitCache(standby, false);
-        if (!current()) return;
-        // 待机只做预缓冲：禁用音频轨，预加载期不初始化音频输出。
-        // iOS 上 mpv 的 ao_audiounit 在卸载文件时会调用进程级
-        // AVAudioSession.setActive(NO)，待机实例若已启动音频输出会被
-        // 正在播的实例 stop 时一起杀掉，新集以音频为主时钟会定格在开头
-        // （上游 Xanerix/guoapp#94）。
-        await _setAudioTrackEnabled(standby, false);
-        if (!current()) return;
-        await standby.open(
-          Media(plan.url, httpHeaders: plan.headers),
-          play: false,
-        );
-      }).timeout(_standbyOpenTimeout);
+      await opening.timeout(_standbyOpenTimeout);
       if (!current()) return;
       _standbyOpen = true;
       _standbyState = _StandbyState.opened; // 预打开完成，可被 swap 接管
@@ -1932,16 +1943,35 @@ class PlaybackSession extends ChangeNotifier {
         '[Play] 待机预打开${timedOut ? '超时' : '失败'}，降级为只解析地址：'
         '${_diagnostic(error)}',
       );
-      _dropStandby();
-      if (timedOut) {
-        // open 挂起的实例状态未知，不能放回待机位复用（会泄漏/串音）。
-        // 真正 dispose，并保留引用直到会话结束做二次兜底。
-        _standbyHung = true;
-        _standbyState = _StandbyState.retiring; // 隔离释放中，绝不再复用
-        // 置空后 dispose() 不会再二次释放它（_retire 已异步接管）。
-        _standby = null;
-        unawaited(_retire(standby));
+      if (!timedOut) {
+        // open 已明确失败并落定：走常规丢弃（stop 会排队在串行链上，安全）。
+        _dropStandby();
+        return;
       }
+      // 超时：原生 open 可能仍在执行。先永久隔离该实例（绝不再复用），
+      // 且不在这里 enqueue stop / 直接 dispose —— 两者都会与仍在进行的
+      // 原生 open 并发。改为等 opening 真正结束后再释放。
+      _standbyTicket++; // 作废所有在途待机任务
+      final planSession = _standbyPlan?.session;
+      _standbyPlan = null;
+      _standbyIndex = -1;
+      _standbyOpen = false;
+      _standbyHung = true;
+      _standbyState = _StandbyState.retiring; // 隔离释放中，绝不再复用
+      _standby = null;
+      if (planSession != null) unawaited(_release(planSession));
+      unawaited(
+        opening
+            .then<void>(
+              (_) {},
+              onError: (Object error) {
+                DiaryService.add(
+                  '[Play] 待机 open 延迟结束：${_diagnostic(error)}',
+                );
+              },
+            )
+            .whenComplete(() => _retire(standby)),
+      );
     }
   }
 

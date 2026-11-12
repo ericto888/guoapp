@@ -11,8 +11,9 @@ class FakePlayer implements Player {
   var stops = 0;
   var disposed = false;
 
-  /// 模拟 mpv 的 stop 挂起：调用后永远不返回。
+  /// 模拟 mpv 的 stop 挂起：调用后不返回，直到 [completeStop] 放行。
   bool hangStop = false;
+  Completer<void>? _stopGate;
 
   /// 模拟「补发 play 也不生效」：播放器静默停在 playing=false。
   bool ignorePlay = false;
@@ -129,8 +130,18 @@ class FakePlayer implements Player {
   @override
   Future<void> stop() async {
     stops++;
-    if (hangStop) return Completer<void>().future;
+    if (hangStop) {
+      final gate = Completer<void>();
+      _stopGate = gate;
+      return gate.future;
+    }
     state = state.copyWith(playing: false, position: Duration.zero);
+  }
+
+  /// 放行挂起的 stop（配合 [hangStop]），让 stop Future 真正结束。
+  void completeStop() {
+    final gate = _stopGate;
+    if (gate != null && !gate.isCompleted) gate.complete();
   }
 
   @override
