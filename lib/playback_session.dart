@@ -356,6 +356,15 @@ class PlaybackSession extends ChangeNotifier {
   /// 已进入（或已完成）释放流程的实例：[_retire] 保证同一实例只 dispose 一次。
   /// 用于消除「dispose() 与 open 超时清理同时 _retire 同一 standby」的二次释放。
   final Set<Player> _retiring = <Player>{};
+
+  /// 实例上「仍未结束的底层原生 open」。与票据、[current] 判断完全解耦。
+  ///
+  /// `Future.timeout()` 只让等待方超时，**不会取消**原生 open；而 [_open] 里
+  /// 的 `if (!current()) return;` 会在会话关闭/票据作废时提前返回，导致
+  /// [_standbyOps] 串行链误认为该实例已空闲，随后 dispose() 就能在原生 open
+  /// 仍在执行时释放它（P0）。因此把原始 open Future 单独登记：任何 stop /
+  /// dispose 都必须先等它真正结束，不依赖 current() 是否仍成立。
+  final Map<Player, Future<void>> _rawOpenings = <Player, Future<void>>{};
   int _index;
   int _openedIndex = -1;
   int _generation = 0;
@@ -1061,15 +1070,18 @@ class PlaybackSession extends ChangeNotifier {
       await _guarded<void>(
         ticket,
         '重新打开媒体',
-        () => player.open(
-          Media(
-            plan.url,
-            httpHeaders: plan.headers,
-            start: position > 0
-                ? Duration(milliseconds: (position * 1000).round())
-                : null,
+        () => _trackOpen(
+          player,
+          player.open(
+            Media(
+              plan.url,
+              httpHeaders: plan.headers,
+              start: position > 0
+                  ? Duration(milliseconds: (position * 1000).round())
+                  : null,
+            ),
+            play: _foreground && _playIntent,
           ),
-          play: _foreground && _playIntent,
         ),
         timeout: _openTimeout,
       );
@@ -1137,6 +1149,27 @@ class PlaybackSession extends ChangeNotifier {
   Future<void> _retire(Player target) async {
     // 同一实例只允许释放一次：dispose() 与待机 open 超时清理可能同时请求释放。
     if (!_retiring.add(target)) return;
+    // 该实例上若还有未结束的底层 open，必须先等它真正结束。会话关闭（dispose）
+    // 与切集（_dropStandby）都会走到这里，而这两条路径都可能在原生 open 仍在
+    // 执行时被触发 —— 提前 dispose 会与 open 并发（P0 生命周期缺口）。
+    // 等待必须有界：真挂死时不能把恢复链/销毁链一起拖住；这种情况下宁可
+    // 放弃释放（泄漏一个已报废实例），也绝不做并发 dispose。
+    var attempts = 0;
+    while (_rawOpenings.containsKey(target) && attempts++ < 4) {
+      try {
+        await _awaitRawOpen(target).timeout(_stopTimeout);
+      } on TimeoutException {
+        DiaryService.add(
+          '[Play] 底层 open ${_stopTimeout.inMilliseconds}ms 仍未结束，'
+          '暂缓释放该实例（避免与 open 并发）',
+        );
+        // 交还幂等位，并登记「open 真正结束后再释放一次」：既不阻塞当前
+        // 调用方，也不把实例永久漏掉。
+        _retiring.remove(target);
+        unawaited(_awaitRawOpen(target).whenComplete(() => _retire(target)));
+        return;
+      }
+    }
     final watch = Stopwatch()..start();
     var retired = false;
     void retire() {
@@ -1188,6 +1221,23 @@ class PlaybackSession extends ChangeNotifier {
   ///   绝不能继续在原实例上 open 新媒（会和新实例竞争），改为异步隔离释放，
   ///   让调用方的新播放任务照常推进；调用方应根据返回值转受控重建。
   Future<bool> _boundedStop(Player target, {required String context}) async {
+    // 该实例上若还有未结束的原生 open，直接 stop 会与它并发（同一实例上
+    // 「open 未落定又收到 stop」同样会踩原生状态）。先等 open 真正结束；
+    // 有界兜底：真挂死就放弃这次 stop，由调用方转受控重建。
+    if (_rawOpenings.containsKey(target)) {
+      try {
+        await _awaitRawOpen(target).timeout(_stopTimeout);
+      } on TimeoutException {
+        DiaryService.add(
+          '[Play] $context 放弃 stop：底层 open ${_stopTimeout.inMilliseconds}ms '
+          '仍未结束，转受控重建并延迟释放旧实例',
+        );
+        // 与 stop 超时一致：等 open 真正落定后才释放，绝不在 open 未结束
+        // 时 dispose（_retire 内部会等并自行重试）。
+        unawaited(_retire(target));
+        return false;
+      }
+    }
     final Future<void> stopping;
     try {
       stopping = target.stop();
@@ -1251,6 +1301,60 @@ class PlaybackSession extends ChangeNotifier {
         .then((_) => operation());
     _standbyOps = next;
     return next;
+  }
+
+  /// 登记一次底层原生 open，原样返回该 Future，结束后自动摘除登记。
+  ///
+  /// 所有 `player.open(...)` 都必须经这里登记：`Future.timeout()` 只让等待方
+  /// 超时，原生 open 仍在执行；之后任何 stop / dispose 都要先等它真正落定。
+  Future<void> _trackOpen(Player target, Future<void> opening) {
+    final previous = _rawOpenings[target];
+    // 同一实例上前一条 open 若还没落定，必须一起等：只跟踪最后一条会把
+    // 「旧 open 仍在跑」误判成已空闲（open 超时后重开就会走到这里）。
+    final pending = previous == null
+        ? opening
+        : previous
+              .then<void>(
+                (_) {},
+                onError: (Object error) {
+                  DiaryService.add(
+                    '[Play] 前一次 open 延迟结束：${_diagnostic(error)}',
+                  );
+                },
+              )
+              .then<void>((_) => opening);
+    _rawOpenings[target] = pending;
+    unawaited(
+      pending
+          .then<void>(
+            (_) {},
+            onError: (Object error) {
+              DiaryService.add('[Play] open 延迟结束：${_diagnostic(error)}');
+            },
+          )
+          .whenComplete(() {
+            if (identical(_rawOpenings[target], pending)) {
+              _rawOpenings.remove(target);
+            }
+          }),
+    );
+    return opening;
+  }
+
+  /// 等待该实例上仍在执行的「底层原生 open」真正结束（无登记则立即返回）。
+  ///
+  /// 本身不做超时，由调用方决定上限（stop 与 retire 都用 [_stopTimeout] 兜住
+  /// 极端挂死）：原生 open 未落定时就 stop/dispose 会与仍在执行的 open 并发，
+  /// 那才是真正的崩溃/串音来源。
+  Future<void> _awaitRawOpen(Player target) {
+    final opening = _rawOpenings[target];
+    if (opening == null) return Future<void>.value();
+    return opening.then<void>(
+      (_) {},
+      onError: (Object error) {
+        DiaryService.add('[Play] 等待底层 open 结束失败：${_diagnostic(error)}');
+      },
+    );
   }
 
   /// 统一的异步任务护栏。
@@ -1572,15 +1676,18 @@ class PlaybackSession extends ChangeNotifier {
         await _guarded<void>(
           ticket,
           '打开媒体',
-          () => player.open(
-            Media(
-              plan.url,
-              httpHeaders: plan.headers,
-              start: position > 0
-                  ? Duration(milliseconds: (position * 1000).round())
-                  : null,
+          () => _trackOpen(
+            player,
+            player.open(
+              Media(
+                plan.url,
+                httpHeaders: plan.headers,
+                start: position > 0
+                    ? Duration(milliseconds: (position * 1000).round())
+                    : null,
+              ),
+              play: _foreground && _playIntent,
             ),
-            play: _foreground && _playIntent,
           ),
           timeout: _openTimeout,
         );
@@ -1907,28 +2014,43 @@ class PlaybackSession extends ChangeNotifier {
         ticket == _standbyTicket &&
         identical(_standbyPlan, plan) &&
         identical(_standby, standby);
+    // 同一实例上若还有上一条尚未结束的 open（上一条任务可能已因票据作废而
+    // 提前返回，但底层原生操作仍在跑），先等它真正结束，避免两次原生 open
+    // 在同一个 Player 上并发。等待有界：真挂死就隔离该实例，绝不让整条
+    // 待机串行链（以及依赖它的 dispose）被一条死 open 拖住。
+    try {
+      await _awaitRawOpen(standby).timeout(_stopTimeout);
+    } on TimeoutException {
+      DiaryService.add('[Play] 待机实例上一次 open 仍未结束，隔离该实例并跳过预打开');
+      _isolateHungStandby(standby);
+      return;
+    }
+    if (!current()) return;
     // 捕获原始 open 任务：Future.timeout 只让等待方超时，不会取消它。
     // 之后任何 stop/dispose 都必须等这个 Future 真正结束后再做，否则会与
     // 仍在执行的「原生 open」并发（与 stop 超时→dispose 同一类 P0）。
-    final Future<void> opening = Future<void>(() async {
-      await _configure(standby, plan);
-      if (!current()) return;
-      // 待机播放器也保留完整缓存：限到 4MB 时高倍速/弱网切过去只缓冲了一两秒，
-      // 首帧播完就断流，表现为卡在第 1 秒。
-      await _limitCache(standby, false);
-      if (!current()) return;
-      // 待机只做预缓冲：禁用音频轨，预加载期不初始化音频输出。
-      // iOS 上 mpv 的 ao_audiounit 在卸载文件时会调用进程级
-      // AVAudioSession.setActive(NO)，待机实例若已启动音频输出会被
-      // 正在播的实例 stop 时一起杀掉，新集以音频为主时钟会定格在开头
-      // （上游 Xanerix/guoapp#94）。
-      await _setAudioTrackEnabled(standby, false);
-      if (!current()) return;
-      await standby.open(
-        Media(plan.url, httpHeaders: plan.headers),
-        play: false,
-      );
-    });
+    final Future<void> opening = _trackOpen(
+      standby,
+      Future<void>(() async {
+        await _configure(standby, plan);
+        if (!current()) return;
+        // 待机播放器也保留完整缓存：限到 4MB 时高倍速/弱网切过去只缓冲了一两秒，
+        // 首帧播完就断流，表现为卡在第 1 秒。
+        await _limitCache(standby, false);
+        if (!current()) return;
+        // 待机只做预缓冲：禁用音频轨，预加载期不初始化音频输出。
+        // iOS 上 mpv 的 ao_audiounit 在卸载文件时会调用进程级
+        // AVAudioSession.setActive(NO)，待机实例若已启动音频输出会被
+        // 正在播的实例 stop 时一起杀掉，新集以音频为主时钟会定格在开头
+        // （上游 Xanerix/guoapp#94）。
+        await _setAudioTrackEnabled(standby, false);
+        if (!current()) return;
+        await standby.open(
+          Media(plan.url, httpHeaders: plan.headers),
+          play: false,
+        );
+      }),
+    );
     try {
       await opening.timeout(_standbyOpenTimeout);
       if (!current()) return;
@@ -1937,8 +2059,18 @@ class PlaybackSession extends ChangeNotifier {
       _standbyAt = DateTime.now();
       _notify();
     } catch (error) {
-      if (!current()) return;
       final timedOut = error is TimeoutException;
+      if (!current()) {
+        // 会话已关闭 / 票据已作废：不得再写回任何状态。
+        // - 会话关闭（_closed）：实例不可能再被复用，显式隔离并交给
+        //   [_retire]（它会先等底层 open 真正结束），堵住「dispose() 只等
+        //   _standbyOps，却在原生 open 未结束时释放实例」的 P0 缺口。
+        // - 仅票据作废（切集 / 重新预打开）：实例仍归待机位复用，此时
+        //   [_dropStandby] 已把 stop 排进串行链，而那支 stop 同样会先等原始
+        //   open 结束，所以这里只返回即可，不能销毁实例。
+        if (_closed && timedOut) _isolateHungStandby(standby);
+        return;
+      }
       DiaryService.add(
         '[Play] 待机预打开${timedOut ? '超时' : '失败'}，降级为只解析地址：'
         '${_diagnostic(error)}',
@@ -1948,31 +2080,29 @@ class PlaybackSession extends ChangeNotifier {
         _dropStandby();
         return;
       }
-      // 超时：原生 open 可能仍在执行。先永久隔离该实例（绝不再复用），
-      // 且不在这里 enqueue stop / 直接 dispose —— 两者都会与仍在进行的
-      // 原生 open 并发。改为等 opening 真正结束后再释放。
-      _standbyTicket++; // 作废所有在途待机任务
-      final planSession = _standbyPlan?.session;
-      _standbyPlan = null;
-      _standbyIndex = -1;
-      _standbyOpen = false;
-      _standbyHung = true;
-      _standbyState = _StandbyState.retiring; // 隔离释放中，绝不再复用
-      _standby = null;
-      if (planSession != null) unawaited(_release(planSession));
-      unawaited(
-        opening
-            .then<void>(
-              (_) {},
-              onError: (Object error) {
-                DiaryService.add(
-                  '[Play] 待机 open 延迟结束：${_diagnostic(error)}',
-                );
-              },
-            )
-            .whenComplete(() => _retire(standby)),
-      );
+      // 超时：原生 open 可能仍在执行。永久隔离该实例（绝不再复用），也不
+      // 在这里 enqueue stop / 直接 dispose —— 两者都会与仍在进行的原生
+      // open 并发。释放统一交给 _retire，它会先等原始 open 真正结束。
+      _isolateHungStandby(standby);
     }
+  }
+
+  /// 把「原生 open 可能仍在执行」的待机实例永久隔离：只注销身份，不 stop、
+  /// 不 dispose（两者都会与仍在跑的原生 open 并发）。
+  ///
+  /// 释放统一走 [_retire]，它会先等 [_rawOpenings] 里登记的原始 open 结束。
+  /// 与 [_open] 的 `current()` 判断无关，因此会话关闭 / 票据作废同样生效。
+  void _isolateHungStandby(Player standby) {
+    _standbyTicket++; // 作废所有在途待机任务
+    final planSession = _standbyPlan?.session;
+    _standbyPlan = null;
+    _standbyIndex = -1;
+    _standbyOpen = false;
+    _standbyHung = true;
+    _standbyState = _StandbyState.retiring; // 隔离释放中，绝不再复用
+    if (identical(_standby, standby)) _standby = null;
+    if (planSession != null) unawaited(_release(planSession));
+    unawaited(_retire(standby));
   }
 
   void _dropStandby() {
@@ -1993,12 +2123,29 @@ class PlaybackSession extends ChangeNotifier {
         unawaited(
           _standbySerialize(() async {
             try {
+              // [_open] 可能已因票据作废提前返回，但该实例上的原生 open 仍
+              // 可能未结束：必须先等它真正结束再 stop，否则 stop 会与原生
+              // open 并发（P0，切集路径的核心缺口）。
+              await _awaitRawOpen(target).timeout(_stopTimeout);
               await target.stop();
+            } on TimeoutException {
+              // 底层 open 长时间不返回（mpv 卡死）：放弃 stop —— 并发 stop
+              // 比泄漏更危险。永久隔离该实例，等 open 真正结束后由 _retire
+              // 释放；串行链本身保持可用，不影响后续预加载。
+              DiaryService.add(
+                '[Play] 待机 stop 放弃：底层 open ${_stopTimeout.inMilliseconds}ms '
+                '仍未结束，隔离该实例',
+              );
+              _standbyHung = true;
+              _standbyState = _StandbyState.retiring;
+              if (identical(_standby, target)) _standby = null;
+              unawaited(_retire(target));
             } catch (error) {
               DiaryService.add('[Play] 待机播放器 stop 失败：${_diagnostic(error)}');
             } finally {
               // stop 完成时清理状态：同实例才回到 idle，让 _prime 重新预打开。
-              if (identical(_standby, target)) {
+              if (identical(_standby, target) &&
+                  _standbyState == _StandbyState.stopping) {
                 _standbyState = _StandbyState.idle;
               }
             }
@@ -3108,6 +3255,9 @@ class PlaybackSession extends ChangeNotifier {
     final session = _plan?.session ?? '';
     unawaited(_release(session));
     final standbyPlan = _standbyPlan;
+    // 先摘除待机计划再释放：之后 _open 的迟到收尾（_isolateHungStandby）不会
+    // 重复 release 同一个站源会话。
+    _standbyPlan = null;
     if (standbyPlan != null) unawaited(_release(standbyPlan.session));
     final standby = _standby;
     final current = _player;
@@ -3142,6 +3292,9 @@ class PlaybackSession extends ChangeNotifier {
             if (standby != null) {
               // 等待机串行链上的 open/stop 全部结束后再 dispose，
               // 避免在 open 进行中销毁该实例（P0）。
+              // 注意：串行链结束 **不等于** 原生 open 结束（open 超时后
+              // _open 会提前返回而底层操作仍在跑），_retire 内部还会等
+              // _rawOpenings 里登记的原始 open 真正落定才释放。
               await _standbyOps.then<void>(
                 (_) {},
                 onError: (Object error) {

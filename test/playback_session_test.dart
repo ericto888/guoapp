@@ -269,22 +269,25 @@ void main() {
     expect(store.watched(_show.id)!.episode, 3);
   });
 
-  test('a player error switches to the other route at the same spot', () async {
+  test('a player error enters the recovery chain at the same spot', () async {
     final repository = _PlaybackRepository();
     final store = await openStore();
     final (session, player) = await _open(repository, store);
 
     player.progress(_seconds(20), duration: _seconds(100));
     player.fail('connection reset by https://media.test/1.m3u8?token=x');
-    await Future<void>.delayed(const Duration(milliseconds: 1000));
+
+    // 新恢复链从第 3 级 replay 起步，失败后才升级到 reopen / 换线路，
+    // 这里只断言「恢复链确实执行了，并且从原位置续播」，不绑定具体级别。
+    final recovered = await _waitFor(
+      () => player.opened.length > 1 || repository.fallbacks > 0,
+      timeout: const Duration(seconds: 10),
+    );
     await pumpEventQueue();
 
-    expect(repository.fallbacks, 1);
-    expect(repository.resolved, hasLength(1));
-    expect(player.opened, hasLength(2));
+    expect(recovered, isTrue, reason: '播放器报错后应进入恢复链');
     expect(player.opened.last.start, _seconds(20));
-    expect(session.ready, isTrue);
-    expect(repository.released, contains('session-1'));
+    expect(await _waitFor(() => session.ready), isTrue);
   });
 
   test('a quality change is saved and reloads where it was', () async {
@@ -649,8 +652,14 @@ void main() {
       player.ignorePlay = true;
       player.state = player.state.copyWith(playing: false);
 
-      final recovered = await _waitFor(() => repository.fallbacks > 0);
-      expect(recovered, isTrue, reason: '静默停止应当触发自动恢复');
+      // 静默停止从第 3 级 replay 起步，replay 失败后升到 reopen：
+      // 假播放器的 open() 会把 playing 置回 true，所以在 reopen 阶段就恢复，
+      // 不一定会走到换线路。断言「恢复链执行了」而不是「必定 fallback」。
+      final recovered = await _waitFor(
+        () => player.opened.length > 1 || repository.fallbacks > 0,
+        timeout: const Duration(seconds: 10),
+      );
+      expect(recovered, isTrue, reason: '静默停止应当进入恢复链（重开或换线路）');
       expect(session.error, isNull);
     },
   );
@@ -961,6 +970,84 @@ void main() {
     expect(released, isTrue, reason: 'open 真正结束后必须释放，不能泄漏');
     expect(session.index, 1);
     expect(session.standby, isNull);
+  });
+
+  test('待机 open 挂起时关闭会话：不提前 dispose，open 结束后才释放', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final standby = FakePlayer();
+    final (session, player) = await _open(
+      repository,
+      store,
+      standby: standby,
+      // 超时设得比 _settle 长：让「关闭会话」发生在 open 仍然挂起期间，
+      // 覆盖「_open 因 _closed 提前 return」这条路径（而不是超时隔离路径）。
+      standbyOpenTimeout: const Duration(milliseconds: 1500),
+    );
+    standby.hangOpen = true;
+    await _settle(player);
+    expect(
+      await _waitFor(() => standby.opened.isNotEmpty),
+      isTrue,
+      reason: '待机应已开始预打开',
+    );
+
+    // 关闭会话：此时串行链上的 _open 仍在等 opening.timeout，底层原生 open
+    // 也仍在执行。dispose 只等 _standbyOps 是不够的。
+    _close(session);
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    await pumpEventQueue();
+
+    expect(
+      standby.disposed,
+      isFalse,
+      reason: '会话关闭时原生 open 仍挂起，绝不能提前 dispose（会与 open 并发）',
+    );
+
+    // 放行原始 open：底层操作真正结束后才允许释放。
+    standby.completeAllOpens();
+    final released = await _waitFor(() => standby.disposed);
+    expect(released, isTrue, reason: 'open 结束后必须释放，不能泄漏');
+  });
+
+  test('待机 open 挂起时切集：不提前 stop，open 结束后才 stop', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final standby = FakePlayer();
+    final (session, player) = await _open(
+      repository,
+      store,
+      standby: standby,
+      standbyOpenTimeout: const Duration(milliseconds: 1500),
+    );
+    standby.hangOpen = true;
+    await _settle(player);
+    expect(
+      await _waitFor(() => standby.opened.isNotEmpty),
+      isTrue,
+      reason: '待机应已开始预打开',
+    );
+
+    // 切集：_dropStandby 递增票据并把 stop 排进待机串行链，但底层 open 未结束。
+    await session.switchTo(1, reason: SwitchReason.select);
+    await pumpEventQueue();
+    // 等到 _open 超时返回（票据已失效），此时 stop 任务已轮到执行。
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    await pumpEventQueue();
+
+    expect(session.index, 1);
+    expect(session.error, isNull);
+    expect(
+      standby.stops,
+      0,
+      reason: '原生 open 未结束时不得 stop，否则与 open 并发（P0）',
+    );
+    expect(standby.disposed, isFalse, reason: '可复用的待机实例不应被销毁');
+
+    // 放行 open：之后才允许 stop，且实例回到可复用状态。
+    standby.completeAllOpens();
+    final stopped = await _waitFor(() => standby.stops > 0);
+    expect(stopped, isTrue, reason: 'open 结束后排队中的 stop 应继续执行');
   });
 
   // ---- 阶段 C：统一生命周期入口 / 首帧与盖幕 / 后台补切 ----
