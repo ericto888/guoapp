@@ -995,7 +995,12 @@ void main() {
     // 关闭会话：此时串行链上的 _open 仍在等 opening.timeout，底层原生 open
     // 也仍在执行。dispose 只等 _standbyOps 是不够的。
     _close(session);
-    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    // 等 _open 超时并走「会话已关闭」隔离分支（待机实例被摘下 standby 位）。
+    expect(
+      await _waitFor(() => session.standby == null),
+      isTrue,
+      reason: '会话关闭后待机实例应被隔离注销',
+    );
     await pumpEventQueue();
 
     expect(
@@ -1031,8 +1036,9 @@ void main() {
     // 切集：_dropStandby 递增票据并把 stop 排进待机串行链，但底层 open 未结束。
     await session.switchTo(1, reason: SwitchReason.select);
     await pumpEventQueue();
-    // 等到 _open 超时返回（票据已失效），此时 stop 任务已轮到执行。
-    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    // 等过 _open 的超时：此时它已因票据失效返回，stop 任务轮到执行并卡在
+    // 「等原始 open 结束」上（未结束前不得 stop）。
+    await Future<void>.delayed(const Duration(milliseconds: 2000));
     await pumpEventQueue();
 
     expect(session.index, 1);
