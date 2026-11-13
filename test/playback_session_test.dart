@@ -1281,9 +1281,89 @@ void main() {
     // 恢复任务仍在观察窗口内：此时用户主动暂停必须作废旧任务。
     session.togglePlayback();
     await pumpEventQueue();
+    expect(session.paused, isTrue, reason: '用户暂停后应立即显示暂停状态');
     expect(player.state.playing, isFalse);
     await Future<void>.delayed(const Duration(milliseconds: 1600));
     expect(player.state.playing, isFalse, reason: '过期的恢复任务不得再次续播');
+    expect(session.paused, isTrue);
+    expect(
+      session.phase,
+      isNot(PlaybackPhase.recovering),
+      reason: '恢复任务结束后不得停留在恢复中',
+    );
+  });
+
+  test('锁屏回来恢复期间不闪现暂停状态，phase 视为 recovering', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final (session, player) = await _open(repository, store);
+    await _settle(player);
+    player.progress(_seconds(40), duration: _seconds(100));
+
+    session.onLifecycleEvent(AppLifecycleState.paused, source: 'test');
+    await pumpEventQueue();
+
+    final samples = <bool>[];
+    session.addListener(() => samples.add(session.paused));
+    session.onLifecycleEvent(AppLifecycleState.resumed, source: 'test');
+
+    // 音频会话激活、起播还没完成时，UI 不得把它读成用户主动暂停。
+    expect(session.paused, isFalse);
+    expect(session.phase, PlaybackPhase.recovering);
+    expect(await _waitFor(() => player.state.playing), isTrue);
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+
+    expect(samples, isNotEmpty);
+    expect(samples, everyElement(isFalse), reason: '恢复过程中不得闪现暂停按钮');
+  });
+
+  test('切换到其它 App 再切回来，恢复期间不闪现暂停状态', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final (session, player) = await _open(repository, store);
+    await _settle(player);
+    player.progress(_seconds(40), duration: _seconds(100));
+
+    // 进多任务（仅 inactive）时前台不变，继续播放。
+    session.onLifecycleEvent(AppLifecycleState.inactive, source: 'test');
+    await pumpEventQueue();
+    expect(player.state.playing, isTrue, reason: '仅 inactive 不应暂停');
+
+    // 切到别的 App（paused）才真正进后台。
+    session.onLifecycleEvent(AppLifecycleState.paused, source: 'test');
+    await pumpEventQueue();
+    expect(player.state.playing, isFalse);
+
+    final samples = <bool>[];
+    session.addListener(() => samples.add(session.paused));
+    session.onLifecycleEvent(AppLifecycleState.resumed, source: 'test');
+
+    expect(session.paused, isFalse);
+    expect(await _waitFor(() => player.state.playing), isTrue);
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    expect(samples, isNotEmpty);
+    expect(samples, everyElement(isFalse), reason: '切回 App 的过程中不得闪现暂停按钮');
+  });
+
+  test('锁屏前主动暂停，恢复期间 paused 始终为 true', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final (session, player) = await _open(repository, store);
+    await _settle(player);
+
+    session.togglePlayback();
+    await pumpEventQueue();
+    expect(player.state.playing, isFalse);
+
+    session.onLifecycleEvent(AppLifecycleState.paused, source: 'test');
+    final samples = <bool>[];
+    session.addListener(() => samples.add(session.paused));
+    session.onLifecycleEvent(AppLifecycleState.resumed, source: 'test');
+
+    expect(session.paused, isTrue);
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    expect(samples, everyElement(isTrue));
+    expect(player.state.playing, isFalse);
   });
 
   test('前后台切换后旧 standby 失效，回前台重建新实例', () async {
