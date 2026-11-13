@@ -55,7 +55,11 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   late final _pages = PageController(initialPage: _session.index);
   Player? _bound;
   Timer? _hideTimer;
-  Timer? _rotateRearm;
+
+  /// 退出全屏时先锁竖屏，等设备真正转到竖直后再恢复 auto。
+  /// 用固定 1 秒定时器会抢在系统旋转完成之前解锁，物理横持状态立刻被
+  /// 重新应用，表现为「退出全屏后又闪一次全屏」。
+  bool _rearmAfterExit = false;
   Timer? _tapTimer;
   Timer? _streakTimer;
   Timer? _clockTimer;
@@ -106,6 +110,15 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     _panel = null;
     _visible = true;
     _scheduleHide();
+    // 退出全屏已经落到竖屏：现在才解锁 auto，设备是竖持就不会再弹回全屏。
+    if (!full && _rearmAfterExit) {
+      _rearmAfterExit = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(AppDevice.setPlayerOrientation(PlayerOrientation.auto));
+        }
+      });
+    }
     unawaited(
       SystemChrome.setEnabledSystemUIMode(
         full ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
@@ -136,7 +149,6 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
       unawaited(subscription.cancel());
     }
     _hideTimer?.cancel();
-    _rotateRearm?.cancel();
     _tapTimer?.cancel();
     _streakTimer?.cancel();
     _clockTimer?.cancel();
@@ -380,17 +392,16 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
 
   /// 移动端旋转切换。
   /// 退出全屏必须先强制竖屏：若只设回 auto，物理横持设备（自动横屏进入的
-  /// 全屏）画面不会变化，返回按钮看起来失灵。1 秒后恢复 auto，
-  /// 物理旋转能力不丢；期间用户仍横持会自动重回全屏（跟随设备语义）。
+  /// 全屏）画面不会变化，返回按钮看起来失灵。
+  /// 恢复 auto 的时机不能靠定时器猜：等 [didChangeDependencies] 观察到画面
+  /// 已经变成竖直再解锁，否则系统旋转还没完成就解锁会把横屏状态再应用一次。
   Future<void> _rotateMobile(bool full) async {
-    _rotateRearm?.cancel();
     if (full) {
+      _rearmAfterExit = true;
       await AppDevice.setPlayerOrientation(PlayerOrientation.portrait);
-      _rotateRearm = Timer(const Duration(seconds: 1), () {
-        unawaited(AppDevice.setPlayerOrientation(PlayerOrientation.auto));
-      });
       return;
     }
+    _rearmAfterExit = false;
     await AppDevice.setPlayerOrientation(PlayerOrientation.landscape);
   }
 
