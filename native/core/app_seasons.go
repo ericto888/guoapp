@@ -869,7 +869,7 @@ func (engine *nativeEngine) nativeSeasonAdapter(source string) (seasonAdapter, b
 			},
 			date: detailDate(engine.downloader.fetchHuangguoAIDetail),
 		}, true
-	case sourceZuid, sourceFfzy, sourceRycj:
+	case sourceZuid, sourceFfzy, sourceRycj, sourceHsck:
 		// 采集站沿用同一套季规则：列表已带上线日期，缺日期再查详情。
 		return seasonAdapter{
 			search: func(ctx context.Context, keyword string) ([]Drama, error) {

@@ -74,6 +74,8 @@ func (d *Downloader) providerBaseURL(source string) string {
 		fallback = maccmsSites[sourceFfzy].SiteBase
 	case sourceRycj:
 		fallback = maccmsSites[sourceRycj].SiteBase
+	case sourceHsck:
+		fallback = maccmsSites[sourceHsck].SiteBase
 	case sourceXvideos:
 		fallback = xvideosSiteBaseURL
 	default:
