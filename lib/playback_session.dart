@@ -394,6 +394,9 @@ class PlaybackSession extends ChangeNotifier {
   bool _pausedByUser = false;
   bool _pendingError = false;
   bool _resumeIntent = true;
+  // 前后台恢复任务进行中：此时 _playIntent 正处于「后台暂停 → 回前台起播」
+  // 的中间态（iOS 还要等音频会话激活），UI 状态以 _resumeIntent 为准。
+  bool _resumeInProgress = false;
   int _iosRebuilds = 0;
   bool _playerSuspect = false;
   bool _rebuilding = false;
@@ -575,7 +578,13 @@ class PlaybackSession extends ChangeNotifier {
 
   bool get pipActive => _pipActive;
 
-  bool get paused => !_playIntent;
+  bool get paused {
+    // 恢复过程中播放器被临时 pause 过，_playIntent 不能直接当用户意图用，
+    // 否则锁屏回来会先闪一下播放按钮。
+    if (_resumeInProgress) return !_resumeIntent || _pausedByUser;
+    return !_playIntent;
+  }
+
   bool get boosting => _boosting;
   bool get boostLocked => _boostLocked;
   Size? get videoSize => _videoSize;
@@ -659,7 +668,11 @@ class PlaybackSession extends ChangeNotifier {
     if (_closed) return PlaybackPhase.idle;
     if (_error != null) return PlaybackPhase.error;
     if (!_foreground) return PlaybackPhase.background;
-    if (_bufferingRecovering || _restoring || _rebuilding || _pendingError) {
+    if (_bufferingRecovering ||
+        _restoring ||
+        _rebuilding ||
+        _pendingError ||
+        _resumeInProgress) {
       return PlaybackPhase.recovering;
     }
     if (_loading) {
@@ -2884,6 +2897,9 @@ class PlaybackSession extends ChangeNotifier {
     // 任何一次前后台变化都作废正在进行的恢复任务。
     _restoreToken++;
     _foreground = visible;
+    // 回前台且要恢复时，先于 _sync() 标记恢复中：恢复链的第一个通知
+    // 就要按锁屏前的续播意图推导，不能先闪一帧暂停态。
+    if (visible && restore && !_pendingError) _beginResume();
     _health.reset();
     _sync();
     if (!visible) {
@@ -2896,6 +2912,8 @@ class PlaybackSession extends ChangeNotifier {
       // 最后一帧 pixel buffer。回前台直接 play() 就能无缝接上，不会花屏。
       endBoost();
       _playIntent = false;
+      // 后台期间任何恢复任务都已作废，恢复中标记同步清掉。
+      _resumeInProgress = false;
       // 锁屏/切后台时释放屏幕常亮，省电。
       unawaited(WakelockPlus.disable().catchError((Object _) {}));
       DiaryService.add(
@@ -3034,7 +3052,21 @@ class PlaybackSession extends ChangeNotifier {
       await _resumeFast(token);
     } finally {
       _restores--;
+      _finishResume();
     }
+  }
+
+  /// 标记进入前后台恢复：仅当锁屏前正在播放且用户没有暂停时才视为恢复中。
+  void _beginResume() {
+    _resumeInProgress = _resumeIntent && !_pausedByUser;
+    if (_resumeInProgress) _notify();
+  }
+
+  /// 恢复任务全部结束（含 fallback 链路）后清掉恢复中标记。
+  void _finishResume() {
+    if (_restores > 0 || !_resumeInProgress) return;
+    _resumeInProgress = false;
+    _notify();
   }
 
   Future<void> _resumeFast(int token) async {
@@ -3169,6 +3201,7 @@ class PlaybackSession extends ChangeNotifier {
       await _restoreFromBackground(token);
     } finally {
       _restores--;
+      _finishResume();
     }
   }
 
