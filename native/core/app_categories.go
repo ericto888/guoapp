@@ -85,7 +85,7 @@ func validNativeCategory(source, category string) bool {
 		return validHeitaoCategory(category)
 	case sourceBeabox:
 		return validBeaboxCategory(category)
-	case sourceZuid, sourceFfzy, sourceRycj:
+	case sourceZuid, sourceFfzy, sourceRycj, sourceHsck:
 		return validMaccmsCategory(category)
 	case sourceXvideos:
 		return validXvideosCategory(category)
@@ -184,7 +184,7 @@ func (engine *nativeEngine) nativeCategories(ctx context.Context, source string,
 		if err == nil {
 			all = append(all, categories...)
 		}
-	case sourceZuid, sourceFfzy, sourceRycj:
+	case sourceZuid, sourceFfzy, sourceRycj, sourceHsck:
 		var categories []nativeCategory
 		categories, err = d.fetchMaccmsCategories(ctx, source)
 		if err == nil {

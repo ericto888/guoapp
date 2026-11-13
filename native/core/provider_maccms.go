@@ -19,12 +19,16 @@ type maccmsSite struct {
 	Name     string
 	APIBase  string
 	SiteBase string
+	// AllCategories 为 true 时直接采用站点的全部叶子分类，
+	// 不再按影视分类白名单过滤（如黄色仓库这类非影视站）。
+	AllCategories bool
 }
 
 var maccmsSites = map[string]maccmsSite{
 	sourceZuid: {Source: sourceZuid, Name: "最大影视", APIBase: "https://api.zuidapi.com", SiteBase: "https://www.zuidazy.net"},
 	sourceFfzy: {Source: sourceFfzy, Name: "非凡影视", APIBase: "https://api.ffzyapi.com", SiteBase: "https://www.ffzyapi.com"},
 	sourceRycj: {Source: sourceRycj, Name: "如意影视", APIBase: "https://cj.rycjapi.com", SiteBase: "https://www.rycjapi.com"},
+	sourceHsck: {Source: sourceHsck, Name: "黄色仓库", APIBase: "https://hsckzy888.com", SiteBase: "https://hsckzy888.com", AllCategories: true},
 }
 
 // maccmsCategoryNames 只保留影视相关的叶子分类，父分类（电影片/连续剧/综艺/动漫）接口返回空。
@@ -97,24 +101,44 @@ func (d *Downloader) maccmsRequest(ctx context.Context, source string, params ur
 }
 
 // fetchMaccmsCategories 读取站点分类，仅保留影视类目并保持站点顺序。
-func (d *Downloader) fetchMaccmsCategories(ctx context.Context, source string) ([]nativeCategory, error) {
-	page, err := d.maccmsRequest(ctx, source, url.Values{"ac": {"list"}})
-	if err != nil {
-		return nil, err
-	}
-	items := make([]nativeCategory, 0, len(page.Class))
+// maccmsCategoriesFromClass 把接口返回的分类整理成应用里的分类列表。
+// 影视站只保留白名单里的叶子分类；AllCategories 站点直接取全部叶子分类。
+func maccmsCategoriesFromClass(site maccmsSite, class []map[string]any) []nativeCategory {
+	items := make([]nativeCategory, 0, len(class))
 	seen := map[string]bool{}
-	for _, class := range page.Class {
-		id := mapString(class, "type_id")
-		name := strings.TrimSpace(mapString(class, "type_name"))
-		if !maccmsIDPattern.MatchString(id) || seen[id] || !maccmsCategoryNames[name] {
+	for _, entry := range class {
+		id := mapString(entry, "type_id")
+		name := strings.TrimSpace(mapString(entry, "type_name"))
+		if !maccmsIDPattern.MatchString(id) || seen[id] || name == "" {
+			continue
+		}
+		if site.AllCategories {
+			// 父分类单独查询返回空，这里只保留叶子分类。
+			if pid := strings.TrimSpace(mapString(entry, "type_pid")); pid == "" || pid == "0" {
+				continue
+			}
+		} else if !maccmsCategoryNames[name] {
 			continue
 		}
 		seen[id] = true
 		items = append(items, nativeCategory{ID: id, Name: name})
 	}
+	return items
+}
+
+// fetchMaccmsCategories 读取站点分类，并保持站点顺序。
+func (d *Downloader) fetchMaccmsCategories(ctx context.Context, source string) ([]nativeCategory, error) {
+	site, ok := maccmsSiteOf(source)
+	if !ok {
+		return nil, errors.New("站源未接入采集接口")
+	}
+	page, err := d.maccmsRequest(ctx, source, url.Values{"ac": {"list"}})
+	if err != nil {
+		return nil, err
+	}
+	items := maccmsCategoriesFromClass(site, page.Class)
 	if len(items) == 0 {
-		return nil, fmt.Errorf("%s暂未返回影视分类", maccmsSites[source].Name)
+		return nil, fmt.Errorf("%s暂未返回影视分类", site.Name)
 	}
 	return items, nil
 }
