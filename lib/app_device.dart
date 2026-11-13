@@ -102,10 +102,11 @@ class AppDevice {
       return;
     }
     try {
+      // 每次设定方向前先停掉上一次的重力监听：否则「退出全屏 → 立刻再点
+      // 全屏观看」时，上一次监听仍会回调 orientationSettled 把新锁解开。
+      // 需要监听的方向由 [armOrientationSettle] 重新挂上。
       if (defaultTargetPlatform == TargetPlatform.iOS) {
-        if (orientation == PlayerOrientation.auto) {
-          await channel.invokeMethod<void>('cancelOrientationSettle');
-        }
+        await channel.invokeMethod<void>('cancelOrientationSettle');
       }
       await SystemChrome.setPreferredOrientations(switch (_televisionMode
           ? PlayerOrientation.landscape

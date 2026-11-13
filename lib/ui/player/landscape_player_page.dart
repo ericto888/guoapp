@@ -381,17 +381,17 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   );
 
   /// 移动端旋转切换。
-  /// 退出全屏先强制竖屏：若只设回 auto，物理横持设备（自动横屏进入的
-  /// 全屏）画面不会变化，返回按钮看起来失灵。
-  /// 锁定后不立刻恢复 auto，而是等设备真正转到目标方向再解锁
-  /// （Android 由原生重力监听完成，iOS 补了同样的重力判断），
-  /// 否则手机还横持时一恢复 auto 就会弹回全屏横屏。
+  /// 点「全屏观看」进入全屏：锁定横屏，转回竖直不会退出全屏。
+  /// 返回退出全屏：先强制竖屏，锁定后不立刻恢复 auto，而是等设备真正
+  /// 转到竖直再解锁（Android 由原生重力监听完成，iOS 补了同样的重力判断），
+  /// 否则手机还横持时一恢复 auto 就会弹回全屏。解锁后横过来仍能自动全屏。
   Future<void> _rotateMobile(bool full) async {
-    final target = full
-        ? PlayerOrientation.portrait
-        : PlayerOrientation.landscape;
-    await AppDevice.setPlayerOrientation(target);
-    await AppDevice.armOrientationSettle(target);
+    if (full) {
+      await AppDevice.setPlayerOrientation(PlayerOrientation.portrait);
+      await AppDevice.armOrientationSettle(PlayerOrientation.portrait);
+      return;
+    }
+    await AppDevice.setPlayerOrientation(PlayerOrientation.lockedLandscape);
   }
 
   void _back(bool full) {
