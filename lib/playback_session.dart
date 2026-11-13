@@ -2188,9 +2188,9 @@ class PlaybackSession extends ChangeNotifier {
       Future<void>(() async {
         await _configure(standby, plan);
         if (!current()) return;
-        // 待机播放器也保留完整缓存：限到 4MB 时高倍速/弱网切过去只缓冲了一两秒，
-        // 首帧播完就断流，表现为卡在第 1 秒。
-        await _limitCache(standby, false);
+        // 与上游一致：待机实例用轻量缓存（4MB、默认预读），不在预加载阶段
+        // 抢当前集的带宽；真正起播后由 _swap 恢复完整缓存。
+        await _limitCache(standby, true);
         if (!current()) return;
         // 待机只做预缓冲：禁用音频轨，预加载期不初始化音频输出。
         // iOS 上 mpv 的 ao_audiounit 在卸载文件时会调用进程级
@@ -2357,11 +2357,6 @@ class PlaybackSession extends ChangeNotifier {
       'demuxer-max-bytes',
       '${(limited ? 4 : 32) * 1024 * 1024}',
     );
-    // 关键：max-bytes 只是缓冲上限，mpv 的 demuxer-readahead-secs（默认 1s）
-    // 决定实际预读量——暂停态的待机播放器只预读当前位置前方约 1 秒就停。
-    // 预加载/换集路径（limited=false）必须把预读窗口放大，待机切进来才
-    // 有真缓冲可播，否则首帧播完停 1~2 秒等网络。32MB 上限仍兜住内存。
-    await platform.setProperty('demuxer-readahead-secs', limited ? '1' : '30');
   }
 
   /// 当前下载速度（字节/秒）；本地播放或取不到属性时返回 null。
