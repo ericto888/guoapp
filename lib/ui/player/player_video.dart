@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
@@ -16,7 +14,6 @@ class PlayerVideo extends StatefulWidget {
     required this.handle,
     required this.player,
     this.fit = BoxFit.contain,
-    this.covered = false,
   });
   final PlaybackHandle handle;
   final Player player;
@@ -24,97 +21,11 @@ class PlayerVideo extends StatefulWidget {
   /// 竖屏视频用 [BoxFit.cover] 铺满屏幕，横屏视频用 [BoxFit.contain] 保留完整画面。
   final BoxFit fit;
 
-  /// 恢复瞬间遮住重建纹理的花屏帧。
-  final bool covered;
-
   @override
   State<PlayerVideo> createState() => _PlayerVideoState();
 }
 
-class _PlayerVideoState extends State<PlayerVideo> with WidgetsBindingObserver {
-  final _boundary = GlobalKey();
-  ui.Image? _lastFrame;
-  double _pixelRatio = 1;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _lastFrame?.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _pixelRatio = MediaQuery.devicePixelRatioOf(context);
-  }
-
-  /// 切出/锁屏瞬间（inactive，进程尚未挂起、画面仍在渲染）抓取最后一帧，
-  /// 回前台重建纹理期间用它替代纯黑幕——用户看到的是画面静止而不是黑屏。
-  /// iOS 有时不经过 inactive 直接 paused，这里一并覆盖。
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused) {
-      // 只抓正在出声的那一路；待机播放器是暂停态，抓了也用不上。
-      if (widget.player.state.playing) unawaited(_capture());
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant PlayerVideo oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // 切换了播放器实例（切集/重建换了新的 Player）：上一集抓到的静止帧已
-    // 不属于当前集，必须清空，否则切集瞬间会用旧集画面覆盖新集。
-    if (!identical(oldWidget.player, widget.player)) {
-      _lastFrame?.dispose();
-      _lastFrame = null;
-    }
-    // 盖幕刚落下时也抓一帧：RepaintBoundary 是 Stack 的下层子树，
-    // toImage() 取的是视频层，不会被上层黑幕污染。这样「切集/恢复」
-    // 路径也能有最后一帧，而不只在生命周期事件里才有。
-    if (!oldWidget.covered &&
-        widget.covered &&
-        _lastFrame == null &&
-        widget.player.state.playing) {
-      unawaited(_capture());
-    }
-  }
-
-  Future<void> _capture() async {
-    final boundary =
-        _boundary.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-    if (boundary == null || boundary.size.isEmpty) return;
-    // 绑定抓帧瞬间的播放器实例：异步 toImage 期间若已切集/换播放器，
-    // 这张帧可能属于上一集，不能写进当前状态（P2 快照需与播放会话代次绑定）。
-    final captured = widget.player;
-    try {
-      final image = await boundary.toImage(
-        pixelRatio: math.min(_pixelRatio, 3.0),
-      );
-      if (!mounted) {
-        image.dispose();
-        return;
-      }
-      // 抓帧完成前已切换播放器或已暂停：丢弃这张可能来自旧集的画面。
-      if (!identical(widget.player, captured) || !widget.player.state.playing) {
-        image.dispose();
-        return;
-      }
-      final old = _lastFrame;
-      setState(() => _lastFrame = image);
-      old?.dispose();
-    } catch (_) {
-      // 抓帧失败（例如系统已在挂起边缘）——黑幕兜底，行为与旧版一致。
-    }
-  }
-
+class _PlayerVideoState extends State<PlayerVideo> {
   @override
   Widget build(BuildContext context) {
     final controller = widget.handle.video(widget.player);
@@ -125,49 +36,14 @@ class _PlayerVideoState extends State<PlayerVideo> with WidgetsBindingObserver {
       fit: widget.fit,
       pauseUponEnteringBackgroundMode: false,
     );
-    final surface = Platform.isWindows
-        ? LayoutBuilder(
-            builder: (context, constraints) {
-              final ratio = MediaQuery.devicePixelRatioOf(context);
-              final box = constraints.biggest * ratio;
-              if (!box.isFinite || box.isEmpty) return video;
-              return _OutputSize(
-                controller: controller,
-                box: box,
-                child: video,
-              );
-            },
-          )
-        : video;
-    // 黑幕始终在同一位置，只改变透明度：来回切换 widget 结构会让 Video
-    // 重新挂载纹理，反而制造新的花屏帧。
-    // 盖幕期间优先显示切出前抓到的最后一帧（红果体验），
-    // 没抓到（换集、首次起播）则退回纯黑。
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        RepaintBoundary(key: _boundary, child: surface),
-        IgnorePointer(
-          child: AnimatedOpacity(
-            opacity: widget.covered ? 1 : 0,
-            duration: const Duration(milliseconds: 120),
-            child: _cover(),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _cover() {
-    final frame = _lastFrame;
-    if (frame == null) return const ColoredBox(color: Colors.black);
-    return ColoredBox(
-      color: Colors.black,
-      child: RawImage(
-        image: frame,
-        fit: widget.fit,
-        alignment: Alignment.center,
-      ),
+    if (!Platform.isWindows) return video;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final ratio = MediaQuery.devicePixelRatioOf(context);
+        final box = constraints.biggest * ratio;
+        if (!box.isFinite || box.isEmpty) return video;
+        return _OutputSize(controller: controller, box: box, child: video);
+      },
     );
   }
 }

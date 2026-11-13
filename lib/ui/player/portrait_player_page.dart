@@ -293,7 +293,6 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
         handle: widget.handle,
         player: player,
         fit: BoxFit.contain,
-        covered: session.surfaceCover,
       );
     }
     return LayoutBuilder(
@@ -314,7 +313,6 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
               handle: widget.handle,
               player: player,
               fit: BoxFit.fill,
-              covered: session.surfaceCover,
             ),
           ),
         );

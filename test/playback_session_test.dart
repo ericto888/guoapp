@@ -117,8 +117,6 @@ Future<(PlaybackSession, FakePlayer)> _open(
   Duration openBudget = const Duration(seconds: 25),
   Duration bufferingBudget = const Duration(seconds: 25),
   Duration standbyOpenTimeout = const Duration(seconds: 12),
-  Duration surfaceCoverTimeout = const Duration(seconds: 3),
-  Duration surfaceHardTimeout = const Duration(seconds: 5),
   int recoveryMaxAttempts = PlaybackRecovery.defaultMaxAttempts,
   Duration recoveryWindow = PlaybackRecovery.defaultWindow,
   Duration recoveryBackoff = const Duration(seconds: 1),
@@ -144,8 +142,6 @@ Future<(PlaybackSession, FakePlayer)> _open(
     openBudget: openBudget,
     bufferingBudget: bufferingBudget,
     standbyOpenTimeout: standbyOpenTimeout,
-    surfaceCoverTimeout: surfaceCoverTimeout,
-    surfaceHardTimeout: surfaceHardTimeout,
     recoveryMaxAttempts: recoveryMaxAttempts,
     recoveryWindow: recoveryWindow,
     recoveryBackoff: recoveryBackoff,
@@ -1072,7 +1068,6 @@ void main() {
     session.onLifecycleEvent(AppLifecycleState.resumed, source: 'test');
     expect(session.lifecycleStage, PlaybackLifecycleStage.foreground);
     expect(session.lifecycleEpoch, 2);
-    expect(session.surfaceCover, isTrue, reason: '只经历 inactive 的恢复序列也必须盖幕检查首帧');
   });
 
   test('多个 observer 重复上报同一状态只迁移一次', () async {
@@ -1173,50 +1168,19 @@ void main() {
     expect(session.index, 0);
   });
 
-  test('盖幕软兜底保留黑幕进恢复链，硬兜底强制揭开（C7）', () async {
-    final repository = _PlaybackRepository();
-    final store = await openStore();
-    final (session, _) = await _open(
-      repository,
-      store,
-      surfaceCoverTimeout: const Duration(milliseconds: 30),
-      surfaceHardTimeout: const Duration(milliseconds: 50),
-    );
-    await pumpEventQueue();
-
-    session.onLifecycleEvent(AppLifecycleState.inactive);
-    session.onLifecycleEvent(AppLifecycleState.resumed);
-    expect(session.surfaceCover, isTrue);
-
-    await Future<void>.delayed(const Duration(milliseconds: 45));
-    expect(session.surfaceTimedOut, isTrue);
-    expect(session.surfaceCover, isTrue, reason: '3s 兜底不得强行揭幕露花屏');
-
-    await Future<void>.delayed(const Duration(milliseconds: 70));
-    expect(session.surfaceCover, isFalse, reason: '硬兜底必须揭开，防永久黑屏');
-  });
-
-  test('frameReady 独立反映画面就绪，不改变 ready 的交互语义', () async {
+  test('inactive → resumed 不重建播放器，恢复后仍是同一实例', () async {
     final repository = _PlaybackRepository();
     final store = await openStore();
     final (session, player) = await _open(repository, store);
     await pumpEventQueue();
+
+    session.onLifecycleEvent(AppLifecycleState.inactive);
+    session.onLifecycleEvent(AppLifecycleState.resumed);
+    await pumpEventQueue();
+
+    expect(identical(session.player, player), isTrue);
     expect(session.ready, isTrue);
-    expect(session.frameReady, isFalse, reason: '还没有视频轨道参数');
-
-    player.resize(1920, 1080);
-    await pumpEventQueue();
-    expect(session.frameReady, isTrue);
-    expect(session.ready, isTrue);
-
-    player.buffer(true);
-    await pumpEventQueue();
-    expect(session.frameReady, isFalse);
-    expect(session.ready, isTrue, reason: '缓冲中 UI 控件仍应可用');
-
-    session.togglePlayback();
-    await pumpEventQueue();
-    expect(session.ready, isTrue, reason: '暂停时控件不能失效');
+    expect(session.error, isNull);
   });
 
   // ---- 稳定性修复：恢复意图 / standby 失效重建 / 跨季时序 / 布局 ----

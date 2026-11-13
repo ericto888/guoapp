@@ -693,7 +693,6 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
         key: ValueKey(player),
         handle: widget.handle,
         player: player,
-        covered: session.surfaceCover,
       );
     }
     return LayoutBuilder(
@@ -714,7 +713,6 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
               handle: widget.handle,
               player: player,
               fit: BoxFit.fill,
-              covered: session.surfaceCover,
             ),
           ),
         );
@@ -1663,7 +1661,6 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
         key: ValueKey(player),
         handle: widget.handle,
         player: player,
-        covered: session.surfaceCover,
       );
     }
     final size = fit.size(box, video, MediaQuery.devicePixelRatioOf(context));
@@ -1679,7 +1676,6 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
           handle: widget.handle,
           player: player,
           fit: BoxFit.fill,
-          covered: session.surfaceCover,
         ),
       ),
     );

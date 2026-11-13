@@ -166,8 +166,6 @@ class PlaybackSession extends ChangeNotifier {
     this._openBudget = const Duration(seconds: 25),
     this._bufferingBudget = const Duration(seconds: 25),
     this._standbyOpenTimeout = const Duration(seconds: 12),
-    this._surfaceCoverTimeout = const Duration(seconds: 3),
-    this._surfaceHardTimeout = const Duration(seconds: 5),
     this._recoveryMaxAttempts = PlaybackRecovery.defaultMaxAttempts,
     this._recoveryWindow = PlaybackRecovery.defaultWindow,
     this._recoveryBackoff = const Duration(seconds: 1),
@@ -244,7 +242,6 @@ class PlaybackSession extends ChangeNotifier {
       _videoSize = size;
       _aspectRatio = size.width / size.height;
       _aspectKnown = true;
-      _aspectEpoch = _frameEpoch; // 初始尺寸证据绑定当前画面代次
     }
     _buffering(player.state.buffering);
     final stream = player.stream;
@@ -255,15 +252,10 @@ class PlaybackSession extends ChangeNotifier {
         if (!_closed && _openedIndex == _index && position > Duration.zero) {
           _resumePosition = position.inMilliseconds / 1000;
         }
-        // 黑幕揭开：纹理已经出新画面（见 _maybeRevealSurface）。
-        _maybeRevealSurface();
         _sync();
       }),
       stream.playing.listen((playing) {
         if (!playing) endBoost();
-        // playing=true 只说明解码器起播，不代表纹理首帧已渲染，
-        // 由 _maybeRevealSurface 统一判断。
-        _maybeRevealSurface();
         _sync();
       }),
       stream.buffering.listen((buffering) {
@@ -278,10 +270,6 @@ class PlaybackSession extends ChangeNotifier {
         _videoSize = size;
         _aspectRatio = size.width / size.height;
         _aspectKnown = true;
-        _aspectEpoch = _frameEpoch; // 尺寸证据绑定当前画面代次，旧集残留不会污染新集
-        // 视频轨道参数出现 = 新纹理已经有画面可渲染。
-        _surfaceFrame = true;
-        _maybeRevealSurface();
         _notify();
       }),
     ]);
@@ -332,11 +320,6 @@ class PlaybackSession extends ChangeNotifier {
   /// 待机播放器预打开的等待上限。挂起时该实例不再复用，直接释放，
   /// 预加载降级为「只解析地址」，绝不影响当前正在播的这一集。
   final Duration _standbyOpenTimeout;
-
-  /// 盖幕 3s 软兜底（进恢复链）与之后的硬兜底（强制揭幕，防永久黑屏）。
-  /// 同样允许测试注入短值。
-  final Duration _surfaceCoverTimeout;
-  final Duration _surfaceHardTimeout;
 
   /// 恢复协调器的次数上限、时间窗口与起始退避；测试可注入短值验证
   /// 「次数耗尽」与「分级升级」，生产值保持 6 次 / 10 分钟 / 1s→8s。
@@ -407,12 +390,6 @@ class PlaybackSession extends ChangeNotifier {
   bool _queuedPlay = true;
   int _restoreToken = 0;
   int _restores = 0;
-  bool _surfaceCover = false;
-  DateTime? _surfaceCoverAt;
-  Timer? _surfaceTimer;
-
-  /// 3s 软兜底之后的硬兜底：恢复链也救不回来时不能让用户永远盯着黑幕。
-  Timer? _surfaceHardTimer;
 
   // ---- 统一生命周期入口（阶段 C）----
   AppLifecycleState? _lastLifecycle;
@@ -436,12 +413,6 @@ class PlaybackSession extends ChangeNotifier {
   /// 旧 session 的 fallback 必然失败，恢复链必须改为强制刷新地址。
   int _streamEpoch = 0;
 
-  /// 盖黑幕之后当前纹理是否已报告首帧参数（视频轨道真实就绪）。
-  bool _surfaceFrame = false;
-
-  /// 3s 软兜底已触发过：黑幕仍在，恢复链接手。
-  bool _surfaceTimedOut = false;
-  Duration _surfaceCoverPosition = Duration.zero;
   bool _forceSoftwareDecode = false;
   bool _boosting = false;
   bool _boostLocked = false;
@@ -491,12 +462,6 @@ class PlaybackSession extends ChangeNotifier {
   VideoFit _videoFit = VideoFit.auto;
   double _aspectRatio = 9 / 16;
   bool _aspectKnown = false;
-
-  /// 画面代次：每次进入「新纹理/新一集」自增，作废上一集残留的视频尺寸证据。
-  /// [_aspectEpoch] 记录 videoParams 监听器绑定时的代次，二者不一致说明
-  /// 尺寸来自旧集，[frameReady] 不能据此判定新集已就绪（见 [_beginNewFrame]）。
-  int _frameEpoch = 0;
-  int _aspectEpoch = 0;
   double _resumePosition = 0;
   double _unmutedVolume = 100;
 
@@ -530,26 +495,6 @@ class PlaybackSession extends ChangeNotifier {
 
   /// 正在执行前后台恢复：期间不让健康检查再触发一次恢复，避免互相打断。
   bool get _restoring => _restores > 0;
-
-  /// 恢复瞬间纹理重建会出现一两帧花屏，用一个短黑幕遮住。
-  bool get surfaceCover => _surfaceCover;
-
-  /// 3s 软兜底已触发：首帧迟迟不来，黑幕保留并交给恢复链。
-  bool get surfaceTimedOut => _surfaceTimedOut;
-
-  /// 真实画面就绪：组合视频轨道尺寸/参数、非打开中、无错误、非缓冲。
-  /// 与 [ready] 的区别：ready 表示「控件可交互」（UI 层 40+ 处依赖，暂停时
-  /// 仍为 true），frameReady 只表示「纹理上确实有画面」，供盖幕与诊断使用。
-  bool get frameReady =>
-      !_closed &&
-      !_loading &&
-      _error == null &&
-      !player.state.buffering &&
-      // 尺寸证据必须绑定当前画面代次：切集后上一集残留的宽高/aspect 不能
-      // 让新集的 frameReady 提前返回 true。不再用 player.state.width 兜底——
-      // 宽度可能比视频轨参数更晚清零，会绕过代次校验误判新集已出画。
-      _aspectKnown &&
-      _aspectEpoch == _frameEpoch;
 
   /// 统一生命周期入口的当前阶段，供日志与测试观察。
   PlaybackLifecycleStage get lifecycleStage => _lifecycleStage;
@@ -1793,8 +1738,7 @@ class PlaybackSession extends ChangeNotifier {
     PlaybackPlan? retained;
     var installed = false;
     try {
-      // open 新 URL 会重建 texture，盖黑幕遮花屏；同时作废上一集残留的尺寸证据。
-      _coverSurface();
+      // open 新 URL 会重建 texture，作废上一集残留的尺寸证据。
       _beginNewFrame();
       var stopped = true;
       await _serialize(() async {
@@ -1973,9 +1917,6 @@ class PlaybackSession extends ChangeNotifier {
     _player = next;
     _standby = previous;
     _plan = plan;
-    // 新实例的尺寸证据必须绑定新画面代次：standby 若尚未报告 videoParams，
-    // 不能沿用上一集的 aspect 判定首帧已就绪（布局仍由页面单独保持）。
-    _beginNewFrame();
     _bind();
     _openedIndex = index;
     _acceptErrors = true;
@@ -1993,7 +1934,6 @@ class PlaybackSession extends ChangeNotifier {
         if (abandoned || !_current(ticket)) return;
         _standbyBusy = false;
         _standbyState = _StandbyState.idle; // stop 完成，允许 _prime 重新预打开
-        _prime(); // stop 完了，立刻尝试预加载下一集
       }),
     );
     if (previousPlan != null) unawaited(_release(previousPlan.session));
@@ -2044,7 +1984,6 @@ class PlaybackSession extends ChangeNotifier {
 
       if (_current(ticket) && _foreground && _playIntent) {
         await next.play();
-        unawaited(_ensurePlaying(ticket));
       }
     } catch (error) {
       DiaryService.add('[Play] 交换播放器失败：${_diagnostic(error)}');
@@ -2439,7 +2378,11 @@ class PlaybackSession extends ChangeNotifier {
 
   /// 开关播放器的音频轨。预加载的待机实例以 aid=no 打开（只缓冲不出声），
   /// 换集等旧实例 stop 完成后再恢复 aid=auto，让音频输出干净地重新初始化。
+  ///
+  /// 只在 iOS 生效：那里卸载媒体会触发进程级的 AVAudioSession.setActive(NO)，
+  /// 必须让待机实例先不占用音频输出。其他平台保留音频预缓冲，换集更快出声。
   Future<void> _setAudioTrackEnabled(Player target, bool enabled) async {
+    if (!Platform.isIOS) return;
     final platform = target.platform;
     if (platform is! NativePlayer) return;
     try {
@@ -2872,9 +2815,8 @@ class PlaybackSession extends ChangeNotifier {
     }
     if (dormant && _playIntent && _error == null && !_loading) {
       // P0-3：只经历 inactive↔resumed 时旧实现完全不动作。
-      // 补一次轻量检查：盖幕 + 原地续播/探活，不销毁实例。
+      // 补一次轻量检查：原地续播/探活，不销毁实例。
       _restoreToken++;
-      _coverSurface();
       if (Platform.isIOS) {
         unawaited(_tryResumeInPlace(_restoreToken));
       } else {
@@ -2925,15 +2867,12 @@ class PlaybackSession extends ChangeNotifier {
       );
       // 所有平台都主动 pause，停音频/省电。
       // iOS 即使不 pause，后台几秒内音频也会继续响（系统不会立即挂起）。
-      // texture 重建靠回前台时的黑幕（_coverSurface）遮花屏帧，position/playing
-      // 推进后自动揭开，不影响视觉。
       unawaited(player.pause());
       unawaited(saveProgress());
       _notify();
       return;
     }
     _iosRebuilds = 0;
-    _coverSurface();
     if (!restore) {
       // 回前台但马上要补切下一集：不要先恢复本集，避免 open 旧集后又被覆盖。
       _notify();
@@ -2949,8 +2888,7 @@ class PlaybackSession extends ChangeNotifier {
       // 播放意图（原本正在播放 → 续播；用户主动暂停 → 保持暂停）。
       unawaited(_restoreAfterBackground(_restoreToken));
     }
-    // _coverSurface 只在「首次盖上」时 notify；连续恢复时 phase 会
-    // 滞留在 background，这里强制对齐一次。
+    // 连续恢复时 phase 可能滞留在 background，这里强制对齐一次。
     _notify();
   }
 
@@ -2960,90 +2898,11 @@ class PlaybackSession extends ChangeNotifier {
   /// 进入新一轮画面：作废上一集残留的视频尺寸证据，等待新纹理自己报告。
   ///
   /// 必须在「新媒/新实例/重建」边界调用（[play]、[_replacePlayer]、
-  /// [_rebuildAndResume]），确保 [_aspectKnown] 与 [_aspectEpoch] 绑定当前集，
-  /// 而不是沿用上一集的尺寸——这是切集后 [frameReady] 误判未出画集已就绪的根因。
-  /// 注意：前后台恢复（[setForeground]）复用同一实例、媒体未变，绝不能调用它，
-  /// 否则恢复后尺寸证据被清空且 videoParams 不会再触发，导致 frameReady 永远为 false。
+  /// [_rebuildAndResume]），确保 [_aspectKnown] 绑定当前集，而不是沿用
+  /// 上一集的尺寸。注意：前后台恢复（[setForeground]）复用同一实例、
+  /// 媒体未变，绝不能调用它。
   void _beginNewFrame() {
-    _frameEpoch++;
     _aspectKnown = false;
-  }
-
-  /// 盖黑幕遮住纹理重建时的花屏帧。
-  /// 揭开时机：纹理报告了首帧参数（videoParams），或 position 相对盖幕时
-  /// 的位置推进 >500ms（解码器确实在出帧）→ 立即揭；3s 仍无画面则
-  /// 保留黑幕并进入恢复链，8s 硬兜底强制揭开。
-  void _coverSurface() {
-    _surfaceTimer?.cancel();
-    _surfaceHardTimer?.cancel();
-    _surfaceHardTimer = null;
-    _surfaceTimedOut = false;
-    _surfaceCoverAt = DateTime.now();
-    // 记录盖幕时的播放位置：续播恢复时 position 本来就在中途，
-    // 不能用「position > 500ms」判断（那只会对新起播有效），
-    // 必须看相对推进量，否则重建未完成就揭幕会露出花屏帧。
-    _surfaceCoverPosition = player.state.position;
-    // 新一轮盖幕：首帧标记作废，等新纹理自己报告。
-    _surfaceFrame = false;
-    if (!_surfaceCover) {
-      _surfaceCover = true;
-      _notify();
-    }
-    // 3s 软兜底：旧实现到点强行揭幕，会露出还没就绪的花屏/黑帧。
-    // 现在改为保留黑幕并交给恢复链；另设 5s 硬兜底，防止恢复链也
-    // 拒绝执行时用户永远盯着黑幕。
-    _surfaceTimer = Timer(_surfaceCoverTimeout, () {
-      _surfaceTimer = null;
-      if (_closed || !_surfaceCover) return;
-      if (frameReady) {
-        _revealSurface();
-        return;
-      }
-      _surfaceTimedOut = true;
-      DiaryService.add('[Play] 盖幕 3s 仍无首帧，保留黑幕并进入恢复链');
-      _queueRecovery('surface_cover_timeout');
-      _surfaceHardTimer = Timer(_surfaceHardTimeout, () {
-        _surfaceHardTimer = null;
-        if (_closed || !_surfaceCover) return;
-        DiaryService.add('[Play] 盖幕硬兜底 8s，强制揭幕');
-        _revealSurface();
-      });
-      _notify();
-    });
-  }
-
-  /// 揭开黑幕的唯一出口，两个 timer 都必须在这里收干净。
-  void _revealSurface() {
-    _surfaceTimer?.cancel();
-    _surfaceTimer = null;
-    _surfaceHardTimer?.cancel();
-    _surfaceHardTimer = null;
-    _surfaceCover = false;
-    _surfaceCoverAt = null;
-    _surfaceFrame = false;
-    _surfaceTimedOut = false;
-    _notify();
-  }
-
-  /// 黑幕是否该揭开了。
-  ///
-  /// 只有「新纹理已经有画面」才揭：videoParams 报告了视频轨道参数，或者
-  /// position 相对盖幕时刻推进超过 0.5s（没有出帧 position 不可能持续前进）。
-  /// 单纯 playing=true 不算——解码器起播时纹理可能还是空的，提前揭开
-  /// 会露出 1~2 帧黑屏，看起来就是画面闪一下。
-  void _maybeRevealSurface() {
-    final since = _surfaceCoverAt;
-    if (!_surfaceCover || since == null) return;
-    // 最小 150ms 保底，避免刚盖上又揭。
-    if (DateTime.now().difference(since).inMilliseconds < 150) return;
-    // 缓冲中说明画面还没稳定，揭开会露出空纹理。
-    if (player.state.buffering) return;
-    final position = player.state.position;
-    if (!_surfaceFrame &&
-        position < _surfaceCoverPosition + const Duration(milliseconds: 500)) {
-      return;
-    }
-    _revealSurface();
   }
 
   /// iOS 前台快速路径：跳过探活，直接激活音频会话 + play()，
@@ -3566,9 +3425,6 @@ class PlaybackSession extends ChangeNotifier {
     _boostTimer?.cancel();
     _stallTimer?.cancel();
     _volumeTimer?.cancel();
-    _surfaceTimer?.cancel();
-    _surfaceHardTimer?.cancel();
-    _surfaceHardTimer = null;
     _clearOpenBudget();
     if (_volumeTimer != null) _saveVolume();
     for (final subscription in _subscriptions) {
