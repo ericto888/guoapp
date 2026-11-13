@@ -1317,7 +1317,42 @@ void main() {
     expect(samples, everyElement(isFalse), reason: '恢复过程中不得闪现暂停按钮');
   });
 
-  test('切换到其它 App 再切回来，恢复期间不闪现暂停状态', () async {
+  test('切出 App 的过渡帧不显示暂停按钮', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final (session, player) = await _open(repository, store);
+    await _settle(player);
+    player.progress(_seconds(40), duration: _seconds(100));
+
+    session.onLifecycleEvent(AppLifecycleState.paused, source: 'test');
+    expect(session.paused, isFalse, reason: '已在后台但画面仍在切换动画里，不得闪出 ▶');
+    await pumpEventQueue();
+    expect(player.state.playing, isFalse);
+
+    session.onLifecycleEvent(AppLifecycleState.resumed, source: 'test');
+    expect(session.paused, isFalse);
+    expect(await _waitFor(() => player.state.playing), isTrue);
+  });
+
+  test('切出前主动暂停，重进后仍显示暂停状态', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final (session, player) = await _open(repository, store);
+    await _settle(player);
+
+    session.togglePlayback();
+    await pumpEventQueue();
+    expect(player.state.playing, isFalse);
+
+    session.onLifecycleEvent(AppLifecycleState.paused, source: 'test');
+    expect(session.paused, isFalse, reason: '后台过渡帧同样不显示 ▶');
+    session.onLifecycleEvent(AppLifecycleState.resumed, source: 'test');
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    expect(session.paused, isTrue, reason: '回到前台后恢复真实暂停状态');
+    expect(player.state.playing, isFalse);
+  });
+
+  test('切换 App 回前台同样不闪现暂停状态', () async {
     final repository = _PlaybackRepository();
     final store = await openStore();
     final (session, player) = await _open(repository, store);
