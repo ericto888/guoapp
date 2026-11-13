@@ -45,7 +45,7 @@ void main() {
         hasAlternative: true,
       );
       // 即使起因是第 2/3 级，监听重建后旧 session 已失效，必须直接走刷新。
-      final decision = recovery.start(reason: 'surface_cover_timeout', context: context)!;
+      final decision = recovery.start(reason: 'open_exception', context: context)!;
       expect(decision.level, 5);
       expect(decision.action, PlaybackRecoveryAction.refresh);
     });

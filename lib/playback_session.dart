@@ -1795,6 +1795,9 @@ class PlaybackSession extends ChangeNotifier {
         if (plan.url.isEmpty) throw AppFailure('站源未返回播放地址，请重试');
         await _configure(player, plan);
         await _limitCache(player, !_engaged);
+        // 该实例可能刚作为待机播放器用过（aid=no）：打开新媒体前必须恢复
+        // 音频轨，否则 iOS 上换集异常后恢复链重开同一实例会一直无声。
+        await _setAudioTrackEnabled(player, true);
         _plan = plan;
         installed = true;
         _acceptErrors = true;
@@ -1987,6 +1990,10 @@ class PlaybackSession extends ChangeNotifier {
       }
     } catch (error) {
       DiaryService.add('[Play] 交换播放器失败：${_diagnostic(error)}');
+      // 异常可能发生在 _setAudioTrackEnabled(next, true) 之前：此时 next 仍是
+      // aid=no（待机打开时禁用了音频轨）。必须在交给恢复链之前恢复，
+      // 否则 iOS 会以无音频轨的实例续播，表现为无声。
+      await _setAudioTrackEnabled(next, true);
       if (_current(ticket)) _queueRecovery('open_exception');
     }
   }

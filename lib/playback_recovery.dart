@@ -74,14 +74,13 @@ class PlaybackRecoveryDecision {
 /// 第 1–3 级里的「真实停滞检测 / 起播救援 / 重发播放」在会话层已有实现
 /// （`PlaybackHealth`、`_ensurePlaying` 的 8 轮救援、`_checkBuffering` 的
 /// 2 次 `_kickPlayer`）。对这些触发源再从头跑一遍只会重复无效操作，
-/// 因此协调器从「尚未尝试过」的级别起步；原生事件、盖幕超时这类
+/// 因此协调器从「尚未尝试过」的级别起步；原生事件、前后台这类
 /// 没经过低级检测的触发源仍从第 2 级开始，保证 6 级链真实可达。
 int playbackRecoveryStartLevel(String reason) {
-  // 原生事件、盖幕超时、前后台这类没经过低级检测的触发源仍从第 2 级开始，
+  // 原生事件、前后台这类没经过低级检测的触发源仍从第 2 级开始，
   // 保证 6 级链真实可达（探活/重发/重开都不会被跳过）。
   if (reason.startsWith('native:') ||
       reason == 'network_restored' ||
-      reason == 'surface_cover_timeout' ||
       reason == 'inactive_resume' ||
       reason == 'foreground_pending_error') {
     return 2;
