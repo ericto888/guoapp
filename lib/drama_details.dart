@@ -27,6 +27,10 @@ class DramaDetails extends ChangeNotifier {
   bool _loading = false;
   bool _seasonsLoading = false;
 
+  /// 季列表是否已经得到确定结果（无论是一季还是多季）。
+  /// 供播放会话区分「尚未加载完成」与「确实没有下一季」。
+  bool _seasonsLoaded = false;
+
   /// 切到另一季后需要按新的当前季重新求一次季列表（补齐可能缺失的季）。
   bool _seasonsDirty = false;
   int _group = 0;
@@ -39,6 +43,7 @@ class DramaDetails extends ChangeNotifier {
   /// 同站源内的季列表；长度 ≤ 1 时 UI 不展示季切换。
   List<DramaSeason> get seasons => _seasons;
   bool get seasonsLoading => _seasonsLoading;
+  bool get seasonsReady => _seasonsLoaded;
   String get warning => _warning;
   String? get error => _error;
   bool get loading => _loading;
@@ -106,9 +111,14 @@ class DramaDetails extends ChangeNotifier {
       _seasonsDirty = true;
       return;
     }
-    if (_seasons.isNotEmpty && !_seasonsDirty) return;
+    if (_seasons.isNotEmpty && !_seasonsDirty) {
+      _markSeasonsLoaded();
+      return;
+    }
     _seasonsDirty = false;
     _seasonsLoading = true;
+    // 重新请求期间「结果未定」：避免调用方在列表刷新到一半时把它当成最终结果。
+    _seasonsLoaded = false;
     try {
       final seasons = await repository
           .seasons(_drama)
@@ -122,8 +132,18 @@ class DramaDetails extends ChangeNotifier {
       _seasonsLoading = false;
       if (_seasonsDirty && !_disposed) {
         unawaited(_loadSeasons(_generation));
+      } else if (_current(generation)) {
+        _markSeasonsLoaded();
       }
     }
+  }
+
+  /// 季列表结果已确定：通知详情页把它（含「只有一季」）同步给播放会话，
+  /// 由会话决定是否补执行跨季播放。
+  void _markSeasonsLoaded() {
+    if (_disposed || _seasonsLoaded) return;
+    _seasonsLoaded = true;
+    _notify();
   }
 
   /// 按季号合并；已有的季保留原对象，只补新拿到的季。
@@ -149,6 +169,8 @@ class DramaDetails extends ChangeNotifier {
     _group = 0;
     _error = null;
     _seasonsDirty = true;
+    // 换季后季列表要重新确认，刷新完成前不能把旧列表当成最终结果。
+    _seasonsLoaded = false;
     _notify();
     await load();
   }

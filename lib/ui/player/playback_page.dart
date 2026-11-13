@@ -26,11 +26,24 @@ class PlaybackPage extends StatefulWidget {
   State<PlaybackPage> createState() => _PlaybackPageState();
 }
 
+/// 页面布局是否按横屏渲染。
+///
+/// 与新视频首帧尺寸确认状态分离：切集时会话会作废上一集的 aspect 证据，
+/// 此时不能把「尺寸未知」误判成「竖屏」——否则横屏切下一集会先退回竖屏、
+/// 等新首帧到达再切回横屏。尺寸未知期间沿用当前布局；新尺寸到达
+/// （videoParams）后再按实际宽高比判断是否真的需要换布局。
+@visibleForTesting
+bool playbackLayoutIsWide({
+  required bool aspectKnown,
+  required double aspectRatio,
+  required bool currentWide,
+}) => aspectKnown ? aspectRatio >= 1 : currentWide;
+
 class _PlaybackPageState extends State<PlaybackPage> {
   final _padFullscreen = ValueNotifier(false);
   final _pageScope = FocusScopeNode(debugLabel: 'playbackPage');
   final _pip = PictureInPicture.instance;
-  late bool _wideVideo = _measure();
+  bool _wideVideo = false;
   MediaQueryData? _media;
   bool _shown = false;
   Player? _bound;
@@ -38,7 +51,12 @@ class _PlaybackPageState extends State<PlaybackPage> {
 
   PlaybackSession get _session => widget.handle.session;
 
-  bool _measure() => _session.aspectKnown && _session.aspectRatio >= 1;
+  /// 当前页面布局是否按横屏渲染。
+  bool _measure() => playbackLayoutIsWide(
+    aspectKnown: _session.aspectKnown,
+    aspectRatio: _session.aspectRatio,
+    currentWide: _wideVideo,
+  );
 
   bool get _television =>
       AppScope.formFactorOf(context) == FormFactor.television;
@@ -46,6 +64,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
   @override
   void initState() {
     super.initState();
+    _wideVideo = _session.aspectKnown && _session.aspectRatio >= 1;
     _session.addListener(_changed);
     _padFullscreen.addListener(_padFullscreenChanged);
     _pip.addListener(_pipChanged);

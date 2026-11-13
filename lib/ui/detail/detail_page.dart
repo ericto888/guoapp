@@ -288,8 +288,15 @@ class _DetailPageState extends State<DetailPage> {
 
   void _detailsChanged() {
     // 季列表晚于剧集到达时，把它同步给已经创建的播放会话。
-    final seasons = _details?.seasons ?? const <DramaSeason>[];
-    if (seasons.length > 1) _handle?.session.syncSeasons(seasons);
+    // complete 区分「还在异步加载」与「确定结果」：加载中的空列表不能
+    // 被会话当成「确实没有下一季」，否则最后一集播完会漏掉跨季衔接。
+    final details = _details;
+    if (details != null) {
+      _handle?.session.syncSeasons(
+        details.seasons,
+        complete: details.seasonsReady,
+      );
+    }
     _syncSeasonPage();
     _preopen();
   }
@@ -368,7 +375,7 @@ class _DetailPageState extends State<DetailPage> {
     if (!mounted || !details.allowed) return;
     final position = _startAt(index, resume: resume);
     final handle = _handle ?? _open(index, position: position);
-    handle.session.syncSeasons(details.seasons);
+    handle.session.syncSeasons(details.seasons, complete: details.seasonsReady);
     _handle = null;
     handle.session.start(index, position: position);
     _watching = true;

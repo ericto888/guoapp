@@ -151,6 +151,7 @@ class PlaybackSession extends ChangeNotifier {
     required this.detail,
     required this._player,
     this._standby,
+    this._spawnStandby,
     this._respawn,
     this._onRetired,
     required int index,
@@ -292,6 +293,10 @@ class PlaybackSession extends ChangeNotifier {
   Player _player;
   final Player Function()? _respawn;
   final void Function(Player player)? _onRetired;
+
+  /// 创建全新备用播放器实例。前后台切换后旧实例一律失效，恢复前台时用
+  /// 它重建 standby；为空表示本次播放不启用备用播放器（preopen=false）。
+  final Player Function()? _spawnStandby;
   Player? _standby;
   late final DanmakuController danmaku;
   late final PlaybackLoader _loader;
@@ -457,6 +462,21 @@ class PlaybackSession extends ChangeNotifier {
   /// 必须校验票据，防止上一集的预打开晚完成后覆盖新一集的状态。
   int _standbyTicket = 0;
 
+  /// 备用播放器实例代次：前后台切换后自增，旧实例的创建/预打开任务与
+  /// 释放回调发现自己过期时只能清理自己的资源，不能污染新一代 standby。
+  int _standbyGeneration = 0;
+
+  /// 前后台切换后需要通过预加载重建 standby。为真时 [_syncPreload] 不再套用
+  /// 「播到后半段才预加载」的省流量策略，恢复前台后尽快把下一集备好。
+  bool _standbyRebuildPending = false;
+
+  /// 详情页季列表是否已经给出确定结果（成功或确认只有一季）。
+  /// 与「确实没有下一季」区分：未加载完成时不能在最后一集播完后放弃跨季。
+  bool _seasonsLoaded = false;
+
+  /// 本季最后一集播完时季列表仍在加载：记录跨季意图，等列表到齐后补执行。
+  bool _pendingSeasonAdvance = false;
+
   /// 待机预打开挂起过一次后不再尝试复用该实例：降级为只解析地址。
   /// 目的不是「修好预加载」，而是保证它永远不能拖垮当前播放。
   bool _standbyHung = false;
@@ -530,6 +550,25 @@ class PlaybackSession extends ChangeNotifier {
 
   /// 统一生命周期入口的当前阶段，供日志与测试观察。
   PlaybackLifecycleStage get lifecycleStage => _lifecycleStage;
+
+  /// 备用播放器是否达到可参与 swap 的就绪态。
+  ///
+  /// 仅 open 成功（[_StandbyState.opened]）还不够：必须仍在同一实例代次、
+  /// 前后台处于前台且实例未被隔离。后台恢复后旧实例一律不再算就绪。
+  bool get standbyReady => _standbyReady;
+
+  bool get _standbyReady =>
+      !_closed &&
+      _foreground &&
+      _standbyOpen &&
+      _standbyState == _StandbyState.opened &&
+      !_standbyHung;
+
+  /// 详情页季列表是否已经给出确定结果。
+  bool get seasonsLoaded => _seasonsLoaded;
+
+  /// 是否还在等待季列表补执行跨季播放。
+  bool get pendingSeasonAdvance => _pendingSeasonAdvance;
 
   /// 真实发生过的生命周期迁移次数（重复上报不计），用于验证去重。
   int get lifecycleEpoch => _lifecycleEpoch;
@@ -703,13 +742,25 @@ class PlaybackSession extends ChangeNotifier {
     final duration = state.duration.inMilliseconds;
     final position = state.position.inMilliseconds;
     final ahead = state.buffer.inMilliseconds - position;
-    if (_standby != null) {
+    if (_standby != null && !_standbyRebuildPending) {
       if (_standbyOpen &&
           DateTime.now().difference(_standbyAt) > const Duration(minutes: 8)) {
         _dropStandby();
       }
       if (_standbyIndex >= 0 || duration <= 0 || ahead < 3000) return;
     } else {
+      if (_standbyRebuildPending) {
+        // 回前台后旧 standby 已失效：跳过「播到后半段才预加载」的节流，
+        // 立即解析下一集；真正的实例创建仍由 _prime 在旧实例释放后执行。
+        _preloader.prepare(
+          detail.drama,
+          detail.episodes[_index + 1],
+          quality: _quality,
+          online: _online,
+          isCurrent: () => !_closed && ticket == _generation,
+        );
+        return;
+      }
       if (!state.playing || state.buffering || !_playIntent) {
         _preloader.pause();
         return;
@@ -749,46 +800,113 @@ class PlaybackSession extends ChangeNotifier {
     }
     // 用户关掉自动连播时停在本集末尾，不再强制衔接（P1-9）。
     final advance = store.playbackPreferences.autoAdvance;
-    if (!_foreground && advance && (hasNext || _nextSeason != null)) {
-      // 后台播完不在后台发起解析（网络/音频都可能已被系统回收）：
-      // 记下待办，回前台由 onLifecycleEvent 补切（P1-8）。
-      _pendingCompleted = true;
-      DiaryService.add('[Play] 后台播完，回前台补切 集=${_index + 1}');
-    } else if (_foreground && advance && hasNext) {
+    if (!advance) {
+      _stopAtEnd();
+      return;
+    }
+    if (!_foreground) {
+      if (hasNext || _nextSeason != null) {
+        // 后台播完不在后台发起解析（网络/音频都可能已被系统回收）：
+        // 记下待办，回前台由 onLifecycleEvent 补切（P1-8）。
+        _pendingCompleted = true;
+        _playIntent = false;
+        // 本集已经播完：回前台即使不补切也不能把本集重新恢复播放。
+        _resumeIntent = false;
+        DiaryService.add('[Play] 后台播完，回前台补切 集=${_index + 1}');
+      } else if (!_seasonsLoaded) {
+        // 季列表还没到齐：先记下跨季意图，等 syncSeasons 补执行。
+        _pendingSeasonAdvance = true;
+        _stopAtEnd();
+        DiaryService.add('[Play] 后台播完，季列表未就绪，等待跨季');
+      } else {
+        // 确实没有下一集/下一季：回前台不能把播完的集重新拉起。
+        _stopAtEnd();
+      }
+      return;
+    }
+    if (hasNext) {
       unawaited(switchTo(_index + 1, reason: SwitchReason.completed));
-    } else if (_foreground && advance && _nextSeason != null) {
+      return;
+    }
+    if (_nextSeason != null) {
       // 本季已看完：同一站源内自动接上下一季第 1 集。
       unawaited(_playNextSeason());
-    } else {
-      DiaryService.add(
-        '[Play] 本集播完不连播 季数=${detail.seasons.length} '
-        '下一季=${_nextSeason?.label ?? '无'} 自动连播=$advance',
-      );
-      _playIntent = false;
-      endBoost();
-      unawaited(player.pause());
-      unawaited(saveProgress());
-      _notify();
+      return;
     }
+    if (!_seasonsLoaded) {
+      // 关键修复：季列表异步加载尚未完成时，不能把「拿不到下一季」当成
+      // 「确实没有下一季」。记录待办，syncSeasons 到齐后自动续播。
+      _pendingSeasonAdvance = true;
+      _stopAtEnd();
+      DiaryService.add(
+        '[Play] 本集播完，季列表尚未加载完成，记录跨季待办 '
+        '季数=${detail.seasons.length}',
+      );
+      return;
+    }
+    _stopAtEnd();
+    DiaryService.add(
+      '[Play] 本集播完不连播 季数=${detail.seasons.length} '
+      '下一季=${_nextSeason?.label ?? '无'} 自动连播=$advance',
+    );
+  }
+
+  /// 停在当前集末尾并清掉播放意图，避免健康检查把「已播完」误判成卡死。
+  void _stopAtEnd() {
+    _playIntent = false;
+    // 已播完的集不参与前后台恢复：回前台不能从末尾重新拉起。
+    _resumeIntent = false;
+    endBoost();
+    unawaited(player.pause());
+    unawaited(saveProgress());
+    _notify();
   }
 
   /// 详情页的季列表是异步加载的，可能在播放会话创建之后才到；
   /// 这里同步给它，供本季播完自动衔接下一季。
-  void syncSeasons(List<DramaSeason> seasons) {
-    if (_closed || seasons.length <= 1) return;
-    final current = detail.seasons;
-    if (current.length == seasons.length &&
-        current.isNotEmpty &&
-        current.first.drama.id == seasons.first.drama.id) {
+  ///
+  /// [complete] 表示这是季列表的最终结果（成功返回，或确认没有更多季）。
+  /// 只有最终结果才能把「等待下一季」的待办判定为「确实没有下一季」；
+  /// 加载中的空列表不得当作结论，否则会漏掉稍后到达的跨季衔接。
+  void syncSeasons(List<DramaSeason> seasons, {bool complete = false}) {
+    if (_closed) return;
+    if (seasons.length > 1) {
+      final current = detail.seasons;
+      if (!_sameSeasons(current, seasons)) {
+        detail = DramaDetail(
+          detail.drama,
+          detail.episodes,
+          warning: detail.warning,
+          seasons: seasons,
+        );
+        _notify();
+      }
+    }
+    if (!complete) return;
+    _seasonsLoaded = true;
+    if (!_pendingSeasonAdvance || _closed) return;
+    // 后台期间季列表到齐也不能起播：保留待办，回前台由 onLifecycleEvent 补执行。
+    if (!_foreground || !_usable) return;
+    if (!store.playbackPreferences.autoAdvance) {
+      _pendingSeasonAdvance = false;
       return;
     }
-    detail = DramaDetail(
-      detail.drama,
-      detail.episodes,
-      warning: detail.warning,
-      seasons: seasons,
-    );
-    _notify();
+    _pendingSeasonAdvance = false;
+    final next = _nextSeason;
+    if (next == null) {
+      DiaryService.add('[Play] 季列表已到齐，确实没有下一季');
+      return;
+    }
+    DiaryService.add('[Play] 季列表已到齐，补执行跨季播放 → ${next.label}');
+    unawaited(_playNextSeason());
+  }
+
+  bool _sameSeasons(List<DramaSeason> a, List<DramaSeason> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].drama.id != b[i].drama.id) return false;
+    }
+    return true;
   }
 
   /// 当前季在季列表中的下一季；单季或顺序不可知时返回 null。
@@ -816,7 +934,14 @@ class PlaybackSession extends ChangeNotifier {
     final season = _nextSeason;
     if (season == null || _closed || !_foreground || !_usable) return;
     _advancingSeason = true;
-    final ticket = _generation;
+    // 本次跨季已经接管待办；同时自增代次，作废在途的旧跨季/恢复任务，
+    // 防止它们晚返回后覆盖用户新选择的剧集。
+    _pendingSeasonAdvance = false;
+    final ticket = ++_generation;
+    // 解析下一季期间本集已经播完：先撤销播放意图，避免健康检查把停在
+    // 末尾误判成「有意图但播放器停了」而抢跑恢复、与跨季切换竞争。
+    _playIntent = false;
+    _health.reset();
     DiaryService.add('[Play] 本季结束，切换到${season.label}');
     // 备用实例与预加载都属于上一季，换季前丢干净，避免命中旧剧集。
     _dropStandby();
@@ -824,14 +949,18 @@ class PlaybackSession extends ChangeNotifier {
     try {
       // 先把上一季的收尾进度按旧剧集记下来，再替换详情。
       await saveProgress();
-      if (!_current(ticket)) return;
-      final next = await repository.detail(season.drama);
+      if (!_current(ticket) || _closed || !_foreground) return;
+      final next = await _loadSeasonDetail(season, ticket);
+      if (next == null) {
+        if (_current(ticket) && !_closed) {
+          _failSeason(season, '无法进入${season.label}，请手动选择剧集后重试');
+        }
+        return;
+      }
       if (!_current(ticket) || _closed || !_foreground) return;
       if (next.episodes.isEmpty) {
-        DiaryService.add('[Play] 下一季没有可播放的分集');
-        _playIntent = false;
-        endBoost();
-        unawaited(player.pause());
+        DiaryService.add('[Play] ${season.label}没有可播放的分集');
+        _failSeason(season, '${season.label}暂无可播放剧集');
         return;
       }
       detail = DramaDetail(
@@ -856,15 +985,48 @@ class PlaybackSession extends ChangeNotifier {
       }
     } catch (error) {
       DiaryService.add('[Play] 切换下一季失败：${_diagnostic(error)}');
-      if (!_closed) {
-        _playIntent = false;
-        endBoost();
-        unawaited(player.pause());
+      if (_current(ticket) && !_closed) {
+        _failSeason(season, '无法进入${season.label}，请手动选择剧集后重试');
       }
     } finally {
       _advancingSeason = false;
       _notify();
     }
+  }
+
+  /// 有限重试加载下一季详情；失败返回 null（调用方负责落地错误）。
+  Future<DramaDetail?> _loadSeasonDetail(DramaSeason season, int ticket) async {
+    Object? failure;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (!_current(ticket) || _closed || !_foreground) return null;
+      try {
+        return await repository.detail(season.drama).timeout(_resolveTimeout);
+      } catch (error) {
+        failure = error;
+        if (attempt >= 2) break;
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      }
+    }
+    DiaryService.add(
+      '[Play] 加载${season.label}失败，已重试 3 次：${_diagnostic(failure ?? '')}',
+    );
+    return null;
+  }
+
+  /// 跨季失败：落地可读错误并停止加载，绝不让播放器永久停留在 Loading。
+  void _failSeason(DramaSeason season, String message) {
+    _pendingSeasonAdvance = false;
+    _pendingError = false;
+    _loading = false;
+    _switching = false;
+    _clearOpenBudget();
+    _error = message;
+    _playIntent = false;
+    endBoost();
+    unawaited(player.pause());
+    unawaited(saveProgress());
+    DiaryService.add('[Play] ${season.label}衔接失败：$message');
+    _notify();
   }
 
   void _queueRecovery(String reason) {
@@ -922,7 +1084,8 @@ class PlaybackSession extends ChangeNotifier {
       playing: state.playing,
       wanted: _playIntent && !_pausedByUser && !_rebuilding,
       hasAlternative: current.hasAlternative,
-      streamEpochStale: current.streamEpoch > 0 &&
+      streamEpochStale:
+          current.streamEpoch > 0 &&
           _streamEpoch > 0 &&
           current.streamEpoch != _streamEpoch,
       local: current.local,
@@ -1099,9 +1262,9 @@ class PlaybackSession extends ChangeNotifier {
   /// 查询取流代次，用于判断旧播放会话是否已随监听重建而作废。
   Future<void> _refreshStreamStatus() async {
     try {
-      final status = await repository
-          .playbackStatus()
-          .timeout(const Duration(seconds: 2));
+      final status = await repository.playbackStatus().timeout(
+        const Duration(seconds: 2),
+      );
       if (!_closed) _streamEpoch = status.epoch;
     } catch (error) {
       DiaryService.add('[Play] 取流代次查询失败：${_diagnostic(error)}');
@@ -1516,8 +1679,10 @@ class PlaybackSession extends ChangeNotifier {
     bool playWhenReady = true,
   }) async {
     if (_closed || !_usable) return;
-    // 任何主动切集都作废「后台播完回前台补切」的待办，避免重复连播。
+    // 任何主动切集都作废「后台播完回前台补切」与「等待季列表补跨季」的待办，
+    // 避免重复连播或在用户已选新集后又插入一次换季。
     _pendingCompleted = false;
+    _pendingSeasonAdvance = false;
     final count = detail.episodes.length;
     if (index < 0 || index >= count) {
       DiaryService.add('[Play] 忽略越界切集 目标=$index 集数=$count 原因=${reason.name}');
@@ -1559,7 +1724,7 @@ class PlaybackSession extends ChangeNotifier {
         allowStandby &&
         !_standbyHung &&
         position == 0 &&
-        _standbyOpen &&
+        _standbyReady &&
         _standbyIndex == index &&
         !_online) {
       return _swap(index, playWhenReady, switchReason);
@@ -1792,6 +1957,9 @@ class PlaybackSession extends ChangeNotifier {
     _player = next;
     _standby = previous;
     _plan = plan;
+    // 新实例的尺寸证据必须绑定新画面代次：standby 若尚未报告 videoParams，
+    // 不能沿用上一集的 aspect 判定首帧已就绪（布局仍由页面单独保持）。
+    _beginNewFrame();
     _bind();
     _openedIndex = index;
     _acceptErrors = true;
@@ -1976,18 +2144,20 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   void _prime() {
-    final standby = _standby;
     final next = _index + 1;
     if (_closed ||
-        standby == null ||
+        !_foreground || // 后台期间不启动任何新的预加载
         _standbyIndex >= 0 ||
         _standbyBusy || // 旧播放器 stop 未完，等完再说
-        _standbyState != _StandbyState.idle || // stopping/opening/opened/retiring 都禁止复用
+        _standbyState !=
+            _StandbyState.idle || // stopping/opening/opened/retiring 都禁止复用
         _standbyHung || // 预打开挂起过：只解析地址，不再复用待机实例
         !_preloader.ready ||
         next >= detail.episodes.length) {
       return;
     }
+    final standby = _ensureStandby();
+    if (standby == null) return;
     _standbyState = _StandbyState.opening; // 进入预打开，期间禁止再次复用
     _standbyIndex = next;
     final plan = _preloader.take(
@@ -1998,20 +2168,49 @@ class PlaybackSession extends ChangeNotifier {
     );
     if (plan == null) {
       _standbyIndex = -1;
+      _standbyState = _StandbyState.idle;
       return;
     }
     _standbyPlan = plan;
+    _standbyRebuildPending = false;
     final ticket = ++_standbyTicket;
+    final generation = _standbyGeneration;
     // 走待机串行链：确保 open 不与随后的 stop/dispose 并发（P0）。
-    unawaited(_standbySerialize(() => _open(standby, plan, ticket)));
+    unawaited(
+      _standbySerialize(() => _open(standby, plan, ticket, generation)),
+    );
+  }
+
+  /// 备用播放器为空时按需创建全新实例。
+  ///
+  /// 前后台切换后旧实例会被摘下并释放，回前台重新预加载时必须换新实例，
+  /// 不能复用已被系统回收/纹理失效的旧播放器（切集首帧花屏的根因）。
+  Player? _ensureStandby() {
+    final current = _standby;
+    if (current != null) return current;
+    final spawn = _spawnStandby;
+    if (spawn == null) return null;
+    final created = spawn();
+    _standby = created;
+    _standbyState = _StandbyState.idle;
+    _standbyHung = false; // 全新实例，不受旧实例挂起状态影响
+    DiaryService.add('[Play] 创建新一代备用播放器');
+    return created;
   }
 
   /// 待机预打开。带独立票据与超时：任何失败都只作废这一份待机计划，
   /// 绝不写回主播放状态，也绝不让挂起的 open 占住待机位。
-  Future<void> _open(Player standby, PlaybackPlan plan, int ticket) async {
+  Future<void> _open(
+    Player standby,
+    PlaybackPlan plan,
+    int ticket,
+    int generation,
+  ) async {
     bool current() =>
         !_closed &&
+        _foreground &&
         ticket == _standbyTicket &&
+        generation == _standbyGeneration &&
         identical(_standbyPlan, plan) &&
         identical(_standby, standby);
     // 同一实例上若还有上一条尚未结束的 open（上一条任务可能已因票据作废而
@@ -2105,55 +2304,95 @@ class PlaybackSession extends ChangeNotifier {
     unawaited(_retire(standby));
   }
 
-  void _dropStandby() {
+  /// [retire] 为真时，停止后该实例不再回到可复用状态，而是交给 [_retire]
+  /// 安全释放（前后台切换后旧 standby 必须彻底失效）。
+  void _dropStandby({bool retire = false}) {
     // 递增票据，作废所有在途的待机打开任务，避免晚完成后写回旧状态。
     _standbyTicket++;
     final plan = _standbyPlan;
+    final target = _standby;
     final opened = _standbyOpen || plan != null;
     _standbyPlan = null;
     _standbyIndex = -1;
     _standbyOpen = false;
-    if (opened) {
-      final target = _standby;
-      if (target != null) {
-        // 进入 stopping：stop 未完成前 _prime 禁止复用该实例（见 [_StandbyState]）。
-        _standbyState = _StandbyState.stopping;
-        // 走待机串行链：若此刻 _open 仍在进行，stop 会排队到 open 结束后
-        // 再执行，绝不与 open 并发（P0）；错误必须记录而不能吞掉。
-        unawaited(
-          _standbySerialize(() async {
-            try {
-              // [_open] 可能已因票据作废提前返回，但该实例上的原生 open 仍
-              // 可能未结束：必须先等它真正结束再 stop，否则 stop 会与原生
-              // open 并发（P0，切集路径的核心缺口）。
-              await _awaitRawOpen(target).timeout(_stopTimeout);
-              await target.stop();
-            } on TimeoutException {
-              // 底层 open 长时间不返回（mpv 卡死）：放弃 stop —— 并发 stop
-              // 比泄漏更危险。永久隔离该实例，等 open 真正结束后由 _retire
-              // 释放；串行链本身保持可用，不影响后续预加载。
-              DiaryService.add(
-                '[Play] 待机 stop 放弃：底层 open ${_stopTimeout.inMilliseconds}ms '
-                '仍未结束，隔离该实例',
-              );
-              _standbyHung = true;
-              _standbyState = _StandbyState.retiring;
-              if (identical(_standby, target)) _standby = null;
-              unawaited(_retire(target));
-            } catch (error) {
-              DiaryService.add('[Play] 待机播放器 stop 失败：${_diagnostic(error)}');
-            } finally {
-              // stop 完成时清理状态：同实例才回到 idle，让 _prime 重新预打开。
-              if (identical(_standby, target) &&
-                  _standbyState == _StandbyState.stopping) {
-                _standbyState = _StandbyState.idle;
-              }
+    if (target != null && (opened || retire)) {
+      // 进入 stopping：stop 未完成前 _prime 禁止复用该实例（见 [_StandbyState]）。
+      _standbyState = _StandbyState.stopping;
+      // 走待机串行链：若此刻 _open 仍在进行，stop 会排队到 open 结束后
+      // 再执行，绝不与 open 并发（P0）；错误必须记录而不能吞掉。
+      unawaited(
+        _standbySerialize(() async {
+          var released = false;
+          try {
+            // [_open] 可能已因票据作废提前返回，但该实例上的原生 open 仍
+            // 可能未结束：必须先等它真正结束再 stop，否则 stop 会与原生
+            // open 并发（P0，切集路径的核心缺口）。
+            await _awaitRawOpen(target).timeout(_stopTimeout);
+            if (opened) await target.stop();
+          } on TimeoutException {
+            // 底层 open 长时间不返回（mpv 卡死）：放弃 stop —— 并发 stop
+            // 比泄漏更危险。永久隔离该实例，等 open 真正结束后由 _retire
+            // 释放；串行链本身保持可用，不影响后续预加载。
+            DiaryService.add(
+              '[Play] 待机 stop 放弃：底层 open ${_stopTimeout.inMilliseconds}ms '
+              '仍未结束，隔离该实例',
+            );
+            _standbyHung = true;
+            _standbyState = _StandbyState.retiring;
+            if (identical(_standby, target)) _standby = null;
+            unawaited(_retire(target));
+            released = true;
+          } catch (error) {
+            DiaryService.add('[Play] 待机播放器 stop 失败：${_diagnostic(error)}');
+          } finally {
+            // stop 完成时清理状态：同实例才回到 idle，让 _prime 重新预打开。
+            // retire 分支必须等释放完成后才能回到 idle，避免新预打开复用旧实例。
+            if (!retire &&
+                identical(_standby, target) &&
+                _standbyState == _StandbyState.stopping) {
+              _standbyState = _StandbyState.idle;
             }
-          }),
-        );
-      }
+          }
+          if (retire && !released) {
+            await _retire(target);
+            if (identical(_standby, target)) _standby = null;
+            if (_standbyState == _StandbyState.stopping ||
+                _standbyState == _StandbyState.retiring) {
+              _standbyState = _StandbyState.idle;
+            }
+          }
+        }),
+      );
     }
     if (plan != null) unawaited(_release(plan.session));
+  }
+
+  /// 前后台切换时让旧 standby 彻底失效，并在其安全释放后允许重建。
+  ///
+  /// 不能只把 `_standbyOpen` 置 false 后继续持有实例：回到前台重新预加载
+  /// 时必须创建全新 Player，旧实例的纹理/解码器可能已被系统回收。
+  void _invalidateStandbyForBackground() {
+    _standbyGeneration++;
+    final hadStandby = _standby != null || _standbyPlan != null;
+    // 只有原本确实有 standby 才需要回前台重建；preopen=false 时不额外创建。
+    _standbyRebuildPending = _standby != null;
+    _dropStandby(retire: _standby != null);
+    if (!hadStandby) {
+      _standbyState = _StandbyState.idle;
+      return;
+    }
+    // 旧实例释放完成前保持 retiring，阻止 _prime 提前复用/新建。
+    _standbyState = _StandbyState.retiring;
+    final generation = _standbyGeneration;
+    unawaited(
+      _standbyOps.whenComplete(() {
+        if (_closed || generation != _standbyGeneration) return;
+        if (_standbyState == _StandbyState.retiring) {
+          _standbyState = _StandbyState.idle;
+        }
+        if (_foreground) _prime();
+      }),
+    );
   }
 
   Future<void> _limitCache(Player target, bool limited) async {
@@ -2237,6 +2476,9 @@ class PlaybackSession extends ChangeNotifier {
     endBoost();
     _playIntent = !player.state.playing;
     _pausedByUser = !_playIntent;
+    // 用户手动暂停/继续同样更新恢复意图：后台期间明确暂停后，回前台
+    // 不得被更早保存的恢复快照强制续播。
+    _resumeIntent = _playIntent;
     _health.reset();
     // 播放时保持屏幕常亮，暂停时释放。
     unawaited(
@@ -2250,6 +2492,8 @@ class PlaybackSession extends ChangeNotifier {
       return;
     }
     if (_playIntent && player.state.completed) {
+      // 用户在本集末尾主动继续播放：取消等待季列表补跨季的待办。
+      _pendingSeasonAdvance = false;
       unawaited(play(_index));
       return;
     }
@@ -2529,7 +2773,10 @@ class PlaybackSession extends ChangeNotifier {
 
   void _onInactive(String source) {
     _lifecycleStage = PlaybackLifecycleStage.preparing;
-    _snapshotForBackground();
+    // 只有真正从前台离开时才保存恢复快照。系统恢复时可能再次发送
+    // hidden → inactive → resumed；后台重复的 inactive 不得用此时已归零的
+    // _playIntent 覆盖第一次保存的恢复意图，否则回前台会被错误地保持暂停。
+    if (_foreground) _snapshotForBackground();
     _lifecycleDormant = true;
     DiaryService.add(
       '[Play] 生命周期 inactive（准备离开前台）来源=$source 集=${_index + 1} '
@@ -2566,13 +2813,29 @@ class PlaybackSession extends ChangeNotifier {
       _pendingCompleted = false;
       if (store.playbackPreferences.autoAdvance) {
         if (hasNext) {
+          // 补切需要真正起播：先把前台标志恢复，但不恢复本集。
+          if (!wasForeground) setForeground(true, restore: false);
           unawaited(switchTo(_index + 1, reason: SwitchReason.completed));
           return;
         }
         if (_nextSeason != null) {
+          if (!wasForeground) setForeground(true, restore: false);
           unawaited(_playNextSeason());
           return;
         }
+      }
+    }
+    if (_pendingSeasonAdvance) {
+      // 后台播完且季列表在后台期间到齐：回前台补执行跨季播放。
+      if (!store.playbackPreferences.autoAdvance) {
+        _pendingSeasonAdvance = false;
+      } else if (_nextSeason != null) {
+        if (!wasForeground) setForeground(true, restore: false);
+        unawaited(_playNextSeason());
+        return;
+      } else if (_seasonsLoaded) {
+        // 季列表已确认没有下一季，清理待办。
+        _pendingSeasonAdvance = false;
       }
     }
     if (!wasForeground) {
@@ -2604,7 +2867,7 @@ class PlaybackSession extends ChangeNotifier {
     setForeground(visible);
   }
 
-  void setForeground(bool visible) {
+  void setForeground(bool visible, {bool restore = true}) {
     if (_closed || _foreground == visible) return;
     // 任何一次前后台变化都作废正在进行的恢复任务。
     _restoreToken++;
@@ -2614,6 +2877,9 @@ class PlaybackSession extends ChangeNotifier {
     if (!visible) {
       // 锁屏/切后台时直接读播放器状态，不等异步 position 事件。
       _snapshotForBackground();
+      // 后台期间旧 standby 一律失效：即使它的 open 已经成功，系统回收过程
+      // 中也可能已使纹理失效，再拿来 swap 就是首帧花屏的来源。
+      _invalidateStandbyForBackground();
       // 不主动 pause player——iOS 切后台时系统会挂起 AVPlayer 并保留
       // 最后一帧 pixel buffer。回前台直接 play() 就能无缝接上，不会花屏。
       endBoost();
@@ -2635,11 +2901,20 @@ class PlaybackSession extends ChangeNotifier {
     }
     _iosRebuilds = 0;
     _coverSurface();
+    if (!restore) {
+      // 回前台但马上要补切下一集：不要先恢复本集，避免 open 旧集后又被覆盖。
+      _notify();
+      return;
+    }
     if (Platform.isIOS) {
       // 先尝试原地恢复（秒级出画面），1.5s 内位置没推进再走兜底链路。
       unawaited(_tryResumeInPlace(_restoreToken));
     } else if (_pendingError) {
       _queueRecovery('foreground_pending_error');
+    } else {
+      // Android / 桌面：没有 iOS 的进程挂起语义，按统一恢复链恢复原始
+      // 播放意图（原本正在播放 → 续播；用户主动暂停 → 保持暂停）。
+      unawaited(_restoreAfterBackground(_restoreToken));
     }
     // _coverSurface 只在「首次盖上」时 notify；连续恢复时 phase 会
     // 滞留在 background，这里强制对齐一次。
@@ -2759,11 +3034,12 @@ class PlaybackSession extends ChangeNotifier {
     if (!activated) {
       DiaryService.add('[Play] iOS 音频会话激活失败，继续尝试原地恢复');
     }
-    if (!playIntent) {
-      // 用户主动暂停且回来想继续暂停：不动实例，只清理状态。
+    if (!playIntent || _pausedByUser) {
+      // 用户主动暂停且回来想继续暂停（或恢复期间又手动暂停）：不动实例，只清理状态。
       _playerSuspect = false;
       _pendingError = false;
       _errorTimer?.cancel();
+      if (player.state.playing) unawaited(player.pause());
       DiaryService.add(
         '[Play] 续播=false，保留原实例不动 耗时=${watch.elapsedMilliseconds}ms',
       );
@@ -2888,7 +3164,7 @@ class PlaybackSession extends ChangeNotifier {
     final watch = Stopwatch()..start();
     final index = _index;
     final position = _resumePosition;
-    final playIntent = _resumeIntent;
+    final playIntent = _resumeIntent && !_pausedByUser;
     final activated = await AppDevice.activateAudio();
     if (!_restorable(token)) return;
     if (!activated) {

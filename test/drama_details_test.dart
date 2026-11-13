@@ -1,9 +1,19 @@
+import 'dart:async';
+
 import 'package:duanju_app/drama_details.dart';
 import 'package:duanju_app/models.dart';
 import 'package:duanju_app/local_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fakes.dart';
+
+class _GatedSeasons extends FakeRepository {
+  _GatedSeasons(this.gate);
+  final Future<List<DramaSeason>> gate;
+
+  @override
+  Future<List<DramaSeason>> seasons(Drama drama) => gate;
+}
 
 DramaDetails _open(FakeRepository repository, LocalStore store, Drama drama) {
   final details = DramaDetails(repository, store, drama);
@@ -110,5 +120,19 @@ void main() {
 
     expect(repository.seasonRequests, [first.id, second.id]);
     expect(details.seasons.map((item) => item.number), [1, 2, 3]);
+  });
+
+  test('季列表加载完成（即使只有一季）才标记 seasonsReady', () async {
+    final gate = Completer<List<DramaSeason>>();
+    final repository = _GatedSeasons(gate.future)
+      ..details[first.id] = dramaDetail(first, count: 3);
+    final details = _open(repository, await openStore(), first);
+    await pumpEventQueue();
+
+    expect(details.seasonsReady, isFalse, reason: '加载中不能被当成「确实没有下一季」');
+
+    gate.complete(const []);
+    await pumpEventQueue();
+    expect(details.seasonsReady, isTrue);
   });
 }

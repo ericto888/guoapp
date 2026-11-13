@@ -7,6 +7,7 @@ import 'package:duanju_app/models.dart';
 import 'package:duanju_app/playback_preferences.dart';
 import 'package:duanju_app/playback_recovery.dart';
 import 'package:duanju_app/playback_session.dart';
+import 'package:duanju_app/ui/player/playback_page.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart';
 
@@ -103,6 +104,7 @@ Future<(PlaybackSession, FakePlayer)> _open(
   int index = 0,
   double position = 0,
   FakePlayer? standby,
+  FakePlayer Function()? spawnStandby,
   FakePlayer? seededPlayer,
   bool autoplay = true,
   FakePlayer Function()? respawn,
@@ -128,6 +130,7 @@ Future<(PlaybackSession, FakePlayer)> _open(
     detail: dramaDetail(_show, count: 3),
     player: player,
     standby: standby,
+    spawnStandby: spawnStandby,
     respawn: respawn,
     onRetired: onRetired,
     index: index,
@@ -1043,11 +1046,7 @@ void main() {
 
     expect(session.index, 1);
     expect(session.error, isNull);
-    expect(
-      standby.stops,
-      0,
-      reason: '原生 open 未结束时不得 stop，否则与 open 并发（P0）',
-    );
+    expect(standby.stops, 0, reason: '原生 open 未结束时不得 stop，否则与 open 并发（P0）');
     expect(standby.disposed, isFalse, reason: '可复用的待机实例不应被销毁');
 
     // 放行 open：之后才允许 stop，且实例回到可复用状态。
@@ -1218,5 +1217,292 @@ void main() {
     session.togglePlayback();
     await pumpEventQueue();
     expect(session.ready, isTrue, reason: '暂停时控件不能失效');
+  });
+
+  // ---- 稳定性修复：恢复意图 / standby 失效重建 / 跨季时序 / 布局 ----
+
+  test('hidden → inactive → resumed 不覆盖恢复意图，回前台继续播放', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final (session, player) = await _open(repository, store);
+    await _settle(player);
+    expect(player.state.playing, isTrue);
+
+    player.progress(_seconds(40), duration: _seconds(100));
+    session.onLifecycleEvent(AppLifecycleState.hidden, source: 'test');
+    await pumpEventQueue();
+    expect(player.state.playing, isFalse, reason: '进入后台应暂停并保存快照');
+
+    // 系统恢复序列会再次上报 inactive：不得用此时已归零的 _playIntent
+    // 覆盖第一次保存的续播意图。
+    session.onLifecycleEvent(AppLifecycleState.inactive, source: 'test');
+    session.onLifecycleEvent(AppLifecycleState.resumed, source: 'test');
+
+    expect(
+      await _waitFor(() => player.state.playing),
+      isTrue,
+      reason: '切出前正在播放，回来应继续播放',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    player.progress(_seconds(42), duration: _seconds(100));
+    expect(session.index, 0);
+  });
+
+  test('切出前用户主动暂停，回来仍保持暂停', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final (session, player) = await _open(repository, store);
+    await _settle(player);
+
+    session.togglePlayback();
+    await pumpEventQueue();
+    expect(player.state.playing, isFalse);
+
+    session.onLifecycleEvent(AppLifecycleState.paused, source: 'test');
+    session.onLifecycleEvent(AppLifecycleState.inactive, source: 'test');
+    session.onLifecycleEvent(AppLifecycleState.resumed, source: 'test');
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+
+    expect(player.state.playing, isFalse, reason: '用户暂停意图优先于系统恢复');
+    expect(player.opened, hasLength(1), reason: '保持暂停时不应重新 open');
+  });
+
+  test('恢复播放期间用户再次暂停，旧恢复任务不得重新启动播放', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final (session, player) = await _open(repository, store);
+    await _settle(player);
+
+    player.progress(_seconds(30), duration: _seconds(100));
+    session.onLifecycleEvent(AppLifecycleState.paused, source: 'test');
+    session.onLifecycleEvent(AppLifecycleState.resumed, source: 'test');
+    expect(await _waitFor(() => player.state.playing), isTrue);
+
+    // 恢复任务仍在观察窗口内：此时用户主动暂停必须作废旧任务。
+    session.togglePlayback();
+    await pumpEventQueue();
+    expect(player.state.playing, isFalse);
+    await Future<void>.delayed(const Duration(milliseconds: 1600));
+    expect(player.state.playing, isFalse, reason: '过期的恢复任务不得再次续播');
+  });
+
+  test('前后台切换后旧 standby 失效，回前台重建新实例', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final standby = FakePlayer();
+    final spawned = <FakePlayer>[];
+    final (session, player) = await _open(
+      repository,
+      store,
+      standby: standby,
+      spawnStandby: () {
+        final player = FakePlayer();
+        spawned.add(player);
+        return player;
+      },
+    );
+    await _settle(player);
+    expect(
+      await _waitFor(() => standby.opened.isNotEmpty),
+      isTrue,
+      reason: '正常前台应先准备好 standby',
+    );
+    expect(session.standbyReady, isTrue);
+
+    session.onLifecycleEvent(AppLifecycleState.paused, source: 'test');
+    await pumpEventQueue();
+    expect(session.standbyReady, isFalse, reason: '后台后旧 standby 不得再算就绪');
+    expect(session.standby, isNull);
+    expect(
+      await _waitFor(() => standby.disposed),
+      isTrue,
+      reason: '旧 standby 应进入隔离释放机制并被释放',
+    );
+
+    session.onLifecycleEvent(AppLifecycleState.resumed, source: 'test');
+    await pumpEventQueue();
+    final rebuilt = await _waitFor(
+      () => spawned.isNotEmpty && spawned.last.opened.isNotEmpty,
+    );
+    expect(rebuilt, isTrue, reason: '回前台应在当前集播放的同时重建 standby');
+    expect(identical(session.standby, standby), isFalse);
+    expect(session.standbyReady, isTrue);
+  });
+
+  test('待机 open 期间进入后台：完成后不得重新标记为可用', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final standby = FakePlayer()..hangOpen = true;
+    final (session, player) = await _open(
+      repository,
+      store,
+      standby: standby,
+      spawnStandby: FakePlayer.new,
+      standbyOpenTimeout: const Duration(seconds: 5),
+    );
+    await _settle(player);
+    expect(
+      await _waitFor(() => standby.opened.isNotEmpty),
+      isTrue,
+      reason: '待机应已开始原生 open',
+    );
+
+    session.onLifecycleEvent(AppLifecycleState.paused, source: 'test');
+    await pumpEventQueue();
+    expect(standby.stops, 0, reason: '原生 open 未结束时不得并发 stop');
+
+    standby.completeAllOpens();
+    await pumpEventQueue();
+    expect(session.standbyReady, isFalse);
+    expect(await _waitFor(() => standby.stops > 0), isTrue);
+  });
+
+  test('最后一集播完季列表未到，加载到齐后自动进入下一季', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final second = drama('show-s2', title: '测试剧第二季');
+    repository.details[second.id] = dramaDetail(second, count: 3);
+    final (session, player) = await _open(repository, store, index: 2);
+    await _settle(player);
+
+    player.finish();
+    await pumpEventQueue();
+    expect(session.pendingSeasonAdvance, isTrue);
+    expect(session.seasonsLoaded, isFalse);
+    expect(session.index, 2, reason: '季列表未到不得误判为没有下一季');
+
+    session.syncSeasons([
+      DramaSeason(number: 1, title: _show.title, drama: _show, episodes: 3),
+      DramaSeason(number: 2, title: second.title, drama: second, episodes: 3),
+    ], complete: true);
+
+    expect(
+      await _waitFor(
+        () => session.index == 0 && session.detail.drama.id == second.id,
+      ),
+      isTrue,
+      reason: '季列表到齐后应补执行跨季播放',
+    );
+    expect(repository.resolved.map((item) => item.episode), contains(1));
+    expect(session.pendingSeasonAdvance, isFalse);
+    expect(session.error, isNull);
+  });
+
+  test('后台播完且季列表在后台到齐，回前台自动进入下一季', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final second = drama('show-s2', title: '测试剧第二季');
+    repository.details[second.id] = dramaDetail(second, count: 3);
+    final (session, player) = await _open(repository, store, index: 2);
+    await _settle(player);
+
+    player.finish();
+    await pumpEventQueue();
+    expect(session.pendingSeasonAdvance, isTrue);
+
+    session.onLifecycleEvent(AppLifecycleState.paused, source: 'test');
+    await pumpEventQueue();
+    // 季列表在后台期间到齐：不得在后台起播，但待办必须保留。
+    session.syncSeasons([
+      DramaSeason(number: 1, title: _show.title, drama: _show, episodes: 3),
+      DramaSeason(number: 2, title: second.title, drama: second, episodes: 3),
+    ], complete: true);
+    await pumpEventQueue();
+    expect(session.index, 2, reason: '后台不得发起跨季播放');
+    expect(session.pendingSeasonAdvance, isTrue);
+
+    session.onLifecycleEvent(AppLifecycleState.resumed, source: 'test');
+    expect(
+      await _waitFor(
+        () => session.index == 0 && session.detail.drama.id == second.id,
+      ),
+      isTrue,
+      reason: '回前台应补执行跨季播放',
+    );
+    expect(session.pendingSeasonAdvance, isFalse);
+  });
+
+  test('下一季详情失败会有限重试并落地错误，不永久停留 Loading', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final second = drama('show-s2', title: '测试剧第二季');
+    final (session, player) = await _open(repository, store, index: 2);
+    await _settle(player);
+    player.finish();
+    await pumpEventQueue();
+
+    repository.detailFailure = '季详情加载失败';
+    session.syncSeasons([
+      DramaSeason(number: 1, title: _show.title, drama: _show, episodes: 3),
+      DramaSeason(number: 2, title: second.title, drama: second, episodes: 3),
+    ], complete: true);
+
+    expect(await _waitFor(() => session.error != null), isTrue);
+    expect(session.loading, isFalse, reason: '失败后必须退出 Loading');
+    expect(session.pendingSeasonAdvance, isFalse);
+    expect(repository.detailRequests, 3, reason: '跨季详情应有限重试 3 次');
+  });
+
+  test('等待季列表期间用户手动选集，旧跨季待办不得覆盖新选择', () async {
+    final repository = _PlaybackRepository();
+    final store = await openStore();
+    final second = drama('show-s2', title: '测试剧第二季');
+    repository.details[second.id] = dramaDetail(second, count: 3);
+    final (session, player) = await _open(repository, store, index: 2);
+    await _settle(player);
+    player.finish();
+    await pumpEventQueue();
+    expect(session.pendingSeasonAdvance, isTrue);
+
+    await session.switchTo(1, reason: SwitchReason.select);
+    expect(session.pendingSeasonAdvance, isFalse);
+
+    session.syncSeasons([
+      DramaSeason(number: 1, title: _show.title, drama: _show, episodes: 3),
+      DramaSeason(number: 2, title: second.title, drama: second, episodes: 3),
+    ], complete: true);
+    await pumpEventQueue();
+
+    expect(session.index, 1, reason: '用户手动选集优先于旧跨季请求');
+    expect(session.detail.drama.id, _show.id);
+  });
+
+  test('切集尺寸未知时保持当前布局，真实宽高比变化才切换', () {
+    expect(
+      playbackLayoutIsWide(
+        aspectKnown: false,
+        aspectRatio: 0,
+        currentWide: true,
+      ),
+      isTrue,
+      reason: '横屏切集 Loading 期间必须保持横屏',
+    );
+    expect(
+      playbackLayoutIsWide(
+        aspectKnown: false,
+        aspectRatio: 2,
+        currentWide: false,
+      ),
+      isFalse,
+      reason: '竖屏切竖屏不能闪动',
+    );
+    expect(
+      playbackLayoutIsWide(
+        aspectKnown: true,
+        aspectRatio: 16 / 9,
+        currentWide: false,
+      ),
+      isTrue,
+      reason: '新视频确实是横屏时允许切换',
+    );
+    expect(
+      playbackLayoutIsWide(
+        aspectKnown: true,
+        aspectRatio: 9 / 16,
+        currentWide: true,
+      ),
+      isFalse,
+      reason: '新视频确实是竖屏时允许切换',
+    );
   });
 }

@@ -25,14 +25,15 @@ class PlaybackHandle {
     bool preopen = true,
   }) {
     final main = _respawnPlayer();
-    final standby = preopen ? _player() : null;
-    if (standby != null) _videos[standby] = VideoController(standby);
+    final standby = preopen ? _respawnPlayer() : null;
     session = PlaybackSession(
       repository: repository,
       store: store,
       detail: detail,
       player: main,
       standby: standby,
+      // 前后台切换后旧 standby 一律失效：会话恢复前台时需要重新创建实例。
+      spawnStandby: preopen ? _respawnPlayer : null,
       respawn: _respawnPlayer,
       onRetired: _retireVideo,
       index: index,
