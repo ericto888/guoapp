@@ -4,11 +4,19 @@ import DuanjuCore
 import CFNetwork
 import AVFoundation
 import MediaPlayer
+import CoreMotion
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var originalBrightness: CGFloat?
   private let volumeView = MPVolumeView(frame: CGRect(x: -100, y: -100, width: 1, height: 1))
+
+  /// 锁定方向后用来判断设备是否真的已经转到该方向（与 Android 的
+  /// OrientationEventListener 对齐），稳定后才让 Dart 侧恢复自动旋转。
+  private let motionManager = CMMotionManager()
+  private var settleMode = ""
+  private var settleReachedAt: CFTimeInterval = 0
+  private static let settleSeconds: CFTimeInterval = 0.8
 
   private var keyWindow: UIWindow? {
     UIApplication.shared.connectedScenes
@@ -86,6 +94,18 @@ import MediaPlayer
           self.originalBrightness = nil
           result(true)
           return
+        case "watchOrientationSettle":
+          // 锁定成竖屏/横屏后开始监听重力，设备真正转过去并稳定一会儿
+          // 再回调 Dart 恢复 auto，避免还横持时立刻弹回全屏。
+          self.watchOrientationSettle(
+            mode: arguments?["mode"] as? String ?? "portrait",
+            channel: channel)
+          result(nil)
+          return
+        case "cancelOrientationSettle":
+          self.cancelOrientationSettle()
+          result(nil)
+          return
         case "volume":
           result(Double(AVAudioSession.sharedInstance().outputVolume))
           return
@@ -120,5 +140,39 @@ import MediaPlayer
                 "pac": (settings["ProxyAutoConfigEnable"] as? NSNumber)?.boolValue == true])
       }
     }
+  }
+
+  private func watchOrientationSettle(mode: String, channel: FlutterMethodChannel) {
+    cancelOrientationSettle()
+    guard motionManager.isDeviceMotionAvailable else { return }
+    settleMode = mode
+    settleReachedAt = 0
+    motionManager.deviceMotionUpdateInterval = 0.1
+    motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
+      guard let self, let gravity = motion?.gravity else { return }
+      // 竖持：重力大致朝屏幕下方；横持：重力大致朝左右两侧。
+      // 阈值 0.86 约等于偏离目标方向 30° 以内。
+      let matched = self.settleMode == "landscape"
+        ? abs(gravity.x) >= 0.86
+        : gravity.y <= -0.86
+      guard matched else {
+        self.settleReachedAt = 0
+        return
+      }
+      let now = CACurrentMediaTime()
+      if self.settleReachedAt == 0 {
+        self.settleReachedAt = now
+        return
+      }
+      guard now - self.settleReachedAt >= AppDelegate.settleSeconds else { return }
+      self.cancelOrientationSettle()
+      channel.invokeMethod("orientationSettled", arguments: nil)
+    }
+  }
+
+  private func cancelOrientationSettle() {
+    motionManager.stopDeviceMotionUpdates()
+    settleMode = ""
+    settleReachedAt = 0
   }
 }

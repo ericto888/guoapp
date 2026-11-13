@@ -102,6 +102,11 @@ class AppDevice {
       return;
     }
     try {
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        if (orientation == PlayerOrientation.auto) {
+          await channel.invokeMethod<void>('cancelOrientationSettle');
+        }
+      }
       await SystemChrome.setPreferredOrientations(switch (_televisionMode
           ? PlayerOrientation.landscape
           : orientation) {
@@ -113,6 +118,32 @@ class AppDevice {
         PlayerOrientation.portrait || PlayerOrientation.lockedPortrait =>
           const [DeviceOrientation.portraitUp],
         PlayerOrientation.auto => const [],
+      });
+    } catch (_) {}
+  }
+
+  static bool _settleHandlerInstalled = false;
+
+  /// iOS 没有系统级方向监听：锁定方向后由重力判断设备是否真的转到了
+  /// 这个方向，稳定一段时间后回调 [orientationSettled]，再恢复 auto。
+  /// 这样退出全屏只转一次竖屏，不会在横持时立刻弹回全屏；
+  /// 之后把手机横过来仍能自动进全屏。Android 由原生 OrientationEventListener
+  /// 完成同样的事，这里直接跳过。
+  static Future<void> armOrientationSettle(
+    PlayerOrientation orientation,
+  ) async {
+    if (defaultTargetPlatform != TargetPlatform.iOS) return;
+    if (!_settleHandlerInstalled) {
+      _settleHandlerInstalled = true;
+      channel.setMethodCallHandler((call) async {
+        if (call.method == 'orientationSettled') {
+          await setPlayerOrientation(PlayerOrientation.auto);
+        }
+      });
+    }
+    try {
+      await channel.invokeMethod<void>('watchOrientationSettle', {
+        'mode': orientation.name,
       });
     } catch (_) {}
   }

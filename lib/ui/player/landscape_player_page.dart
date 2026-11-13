@@ -54,12 +54,15 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   late final _pages = PageController(initialPage: _session.index);
   Player? _bound;
   Timer? _hideTimer;
-  Timer? _rotateRearm;
   Timer? _tapTimer;
   Timer? _streakTimer;
   Timer? _clockTimer;
   Timer? _seekTimer;
   bool? _full;
+
+  /// 当前集在横屏/竖屏两套布局里复用同一个视频 Element：方向切换只换
+  /// 外层排版，不重建 PlayerVideo，避免纹理重新挂载造成的黑帧。
+  final _videoKeys = <int, GlobalKey>{};
   bool _visible = true;
   bool _scrolling = false;
   bool _holding = false;
@@ -135,7 +138,6 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
       unawaited(subscription.cancel());
     }
     _hideTimer?.cancel();
-    _rotateRearm?.cancel();
     _tapTimer?.cancel();
     _streakTimer?.cancel();
     _clockTimer?.cancel();
@@ -374,19 +376,17 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   );
 
   /// 移动端旋转切换。
-  /// 退出全屏必须先强制竖屏：若只设回 auto，物理横持设备（自动横屏进入的
-  /// 全屏）画面不会变化，返回按钮看起来失灵。1 秒后恢复 auto，
-  /// 物理旋转能力不丢；期间用户仍横持会自动重回全屏（跟随设备语义）。
+  /// 退出全屏先强制竖屏：若只设回 auto，物理横持设备（自动横屏进入的
+  /// 全屏）画面不会变化，返回按钮看起来失灵。
+  /// 锁定后不立刻恢复 auto，而是等设备真正转到目标方向再解锁
+  /// （Android 由原生重力监听完成，iOS 补了同样的重力判断），
+  /// 否则手机还横持时一恢复 auto 就会弹回全屏横屏。
   Future<void> _rotateMobile(bool full) async {
-    _rotateRearm?.cancel();
-    if (full) {
-      await AppDevice.setPlayerOrientation(PlayerOrientation.portrait);
-      _rotateRearm = Timer(const Duration(seconds: 1), () {
-        unawaited(AppDevice.setPlayerOrientation(PlayerOrientation.auto));
-      });
-      return;
-    }
-    await AppDevice.setPlayerOrientation(PlayerOrientation.landscape);
+    final target = full
+        ? PlayerOrientation.portrait
+        : PlayerOrientation.landscape;
+    await AppDevice.setPlayerOrientation(target);
+    await AppDevice.armOrientationSettle(target);
   }
 
   void _back(bool full) {
@@ -455,22 +455,22 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                 statusBarIconBrightness: Brightness.light,
                 statusBarBrightness: Brightness.dark,
               ),
-        child: full
-            ? Scaffold(backgroundColor: Colors.black, body: video)
-            : Scaffold(
-                backgroundColor: Colors.black,
-                body: Theme(
-                  data: dark,
-                  child: Column(
-                    children: [
-                      _appBar(context),
-                      // 整块区域（视频 + 信息流）都在 PageView 里，整屏上下滑。
-                      Expanded(child: video),
-                      _episodeBar(context),
-                    ],
-                  ),
-                ),
-              ),
+        // 横竖屏共用同一棵 Column：只把顶栏、底部选集条换成空占位，
+        // 视频始终在同一个 Expanded 位置，切换方向时播放器子树不会重建。
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          body: Theme(
+            data: dark,
+            child: Column(
+              children: [
+                full ? const SizedBox.shrink() : _appBar(context),
+                // 整块区域（视频 + 信息流）都在 PageView 里，整屏上下滑。
+                Expanded(child: video),
+                full ? const SizedBox.shrink() : _episodeBar(context),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -667,14 +667,22 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     );
   }
 
+  /// 当前集用固定的 [GlobalKey]：横竖屏切换时 Flutter 会把同一个 Element
+  /// 移到新位置而不是销毁重建，纹理和 [PlayerVideo] 的静帧缓存都能保留。
+  /// 其它集（待机播放器、预加载页）仍按播放器实例建 key。
+  Key _videoKey(int index, Player player) {
+    if (index != _session.index) return ValueKey(player);
+    return _videoKeys.putIfAbsent(index, () => GlobalKey());
+  }
+
   /// 全屏视频表面：auto 档沿用默认 contain 铺满区域，其他画面比例档位
   /// 按 [VideoFit.size] 计算显示尺寸后居中放置。
-  Widget _videoSurface(PlaybackSession session, Player player) {
+  Widget _videoSurface(PlaybackSession session, int index, Player player) {
     final fit = session.videoFit;
     final video = session.videoSize;
     if (fit == VideoFit.auto || video == null) {
       return PlayerVideo(
-        key: ValueKey(player),
+        key: _videoKey(index, player),
         handle: widget.handle,
         player: player,
         covered: session.surfaceCover,
@@ -694,7 +702,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
             width: size.width,
             height: size.height,
             child: PlayerVideo(
-              key: ValueKey(player),
+              key: _videoKey(index, player),
               handle: widget.handle,
               player: player,
               fit: BoxFit.fill,
@@ -722,7 +730,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
       fit: StackFit.expand,
       children: [
         if (player != null)
-          _videoSurface(session, player)
+          _videoSurface(session, index, player)
         else
           IgnorePointer(
             child: Center(
@@ -1639,12 +1647,17 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
 
   /// 竖屏手持横片的视频表面：auto 档保持 16:9 居中黑边的刻意布局，
   /// 其他档位在视频区内按 [VideoFit.size] 重算显示尺寸居中放置。
-  Widget _heldVideoSurface(PlaybackSession session, Player player, Size box) {
+  Widget _heldVideoSurface(
+    PlaybackSession session,
+    int index,
+    Player player,
+    Size box,
+  ) {
     final fit = session.videoFit;
     final video = session.videoSize;
     if (fit == VideoFit.auto || video == null || box.isEmpty) {
       return PlayerVideo(
-        key: ValueKey(player),
+        key: _videoKey(index, player),
         handle: widget.handle,
         player: player,
         covered: session.surfaceCover,
@@ -1659,7 +1672,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
         width: size.width,
         height: size.height,
         child: PlayerVideo(
-          key: ValueKey(player),
+          key: _videoKey(index, player),
           handle: widget.handle,
           player: player,
           fit: BoxFit.fill,
@@ -1713,6 +1726,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                             if (player != null)
                               _heldVideoSurface(
                                 session,
+                                index,
                                 player,
                                 Size(maxWidth, videoHeight),
                               )
