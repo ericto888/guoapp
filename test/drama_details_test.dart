@@ -15,6 +15,17 @@ class _GatedSeasons extends FakeRepository {
   Future<List<DramaSeason>> seasons(Drama drama) => gate;
 }
 
+class _GatedDetail extends FakeRepository {
+  _GatedDetail(this.gate);
+  final Future<DramaDetail> gate;
+
+  @override
+  Future<DramaDetail> detail(Drama drama) {
+    detailRequests++;
+    return gate;
+  }
+}
+
 DramaDetails _open(FakeRepository repository, LocalStore store, Drama drama) {
   final details = DramaDetails(repository, store, drama);
   addTearDown(details.dispose);
@@ -133,6 +144,32 @@ void main() {
 
     gate.complete(const []);
     await pumpEventQueue();
+    expect(details.seasonsReady, isTrue);
+  });
+
+  test('季列表与剧集详情同时请求，不必等详情返回', () async {
+    final gate = Completer<DramaDetail>();
+    final second = drama('s2', title: '剧甲第二季');
+    final third = drama('s3', title: '剧甲第三季');
+    final repository = _GatedDetail(gate.future)
+      ..seasonLists[first.id] = [
+        DramaSeason(number: 2, title: second.title, drama: second, episodes: 5),
+        DramaSeason(number: 3, title: third.title, drama: third, episodes: 5),
+      ];
+    final details = _open(repository, await openStore(), first);
+    await pumpEventQueue();
+
+    expect(repository.detailRequests, 1);
+    expect(repository.seasonRequests, [first.id], reason: '详情尚未返回时季列表已在请求');
+    expect(details.loading, isTrue);
+    expect(details.seasons.map((item) => item.number), [
+      2,
+      3,
+    ], reason: '季列表先到，不必等详情');
+
+    gate.complete(dramaDetail(first, count: 3));
+    await pumpEventQueue();
+    expect(details.loading, isFalse);
     expect(details.seasonsReady, isTrue);
   });
 }

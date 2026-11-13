@@ -185,9 +185,18 @@ const _television = _Metrics(
 );
 
 class DetailPage extends StatefulWidget {
-  const DetailPage({super.key, required this.store, required this.drama});
+  const DetailPage({
+    super.key,
+    required this.store,
+    required this.drama,
+    this.autoplay = false,
+  });
   final LocalStore store;
   final Drama drama;
+
+  /// 从发现页横幅「继续第 N 集」「立即观看」进入时为 true：
+  /// 详情加载完成后直接跳到播放页并从上次位置继续。
+  final bool autoplay;
 
   @override
   State<DetailPage> createState() => _DetailPageState();
@@ -208,6 +217,11 @@ class _DetailPageState extends State<DetailPage> {
   final _episodeFocus = List.generate(episodeGroupSize, (_) => FocusNode());
   ScrollController? _seasonStrip;
   bool _entered = false;
+  late bool _autoplayPending = widget.autoplay;
+
+  /// 自动播放尚未打开播放页期间盖一层黑底加载圈：
+  /// 避免详情页先闪出内容、再被播放页盖住。
+  late bool _curtain = widget.autoplay;
 
   @override
   void didChangeDependencies() {
@@ -299,6 +313,39 @@ class _DetailPageState extends State<DetailPage> {
     }
     _syncSeasonPage();
     _preopen();
+    unawaited(_autoplay());
+  }
+
+  /// 从发现页横幅直接进入播放：等详情与季列表都返回后，
+  /// 跳到上次看到的那一集并从原位置继续。
+  Future<void> _autoplay() async {
+    final details = _details!;
+    if (!_autoplayPending || !mounted || details.loading) return;
+    _autoplayPending = false;
+    if (_ready && details.allowed) {
+      await _play(details.resumeIndex, resume: true);
+      if (!mounted) return;
+    }
+    if (_curtain) {
+      setState(() => _curtain = false);
+    } else if (AppScope.of(context).television &&
+        details.currentIndex == null) {
+      _playFocus.requestFocus();
+    }
+  }
+
+  /// 播放页入场动画播完再撤黑幕：否则详情页会先露出来一帧。
+  void _liftCurtainAfter(Animation<double> entering) {
+    void lift(AnimationStatus status) {
+      if (status != AnimationStatus.completed) return;
+      entering.removeStatusListener(lift);
+      if (!mounted || !_curtain) return;
+      _entered = true;
+      setState(() => _curtain = false);
+    }
+
+    entering.addStatusListener(lift);
+    lift(entering.status);
   }
 
   /// 让季卡片条当前选中项处于屏幕正中央——
@@ -379,11 +426,12 @@ class _DetailPageState extends State<DetailPage> {
     _handle = null;
     handle.session.start(index, position: position);
     _watching = true;
-    await Navigator.of(context, rootNavigator: true).push(
-      MaterialPageRoute<void>(
-        builder: (_) => PlaybackPage(store: widget.store, handle: handle),
-      ),
+    final route = MaterialPageRoute<void>(
+      builder: (_) => PlaybackPage(store: widget.store, handle: handle),
     );
+    final closed = Navigator.of(context, rootNavigator: true).push(route);
+    if (_curtain) _liftCurtainAfter(route.animation!);
+    await closed;
     _watching = false;
     if (!mounted) return;
     // 播放器可能自动接上了下一季，回到详情页时同步到实际播放的那一季。
@@ -448,6 +496,12 @@ class _DetailPageState extends State<DetailPage> {
         );
       }
       final form = AppScope.formFactorOf(context);
+      if (_curtain) {
+        return const Scaffold(
+          backgroundColor: Colors.black,
+          body: Center(child: CircularProgressIndicator()),
+        );
+      }
       if (form == FormFactor.television) return _televisionPage(details);
       if (form == FormFactor.phone || MediaQuery.sizeOf(context).width < 840) {
         return _phonePage(details);

@@ -80,6 +80,12 @@ class DramaDetails extends ChangeNotifier {
     _loading = true;
     _error = null;
     _notify();
+    // 季列表与剧集详情互不依赖：同时发出请求，「系列多季」卡片不必等
+    // 详情返回后才开始加载。切季（[_seasonsDirty]）时同样要重新确认。
+    if (_seasonsDirty ||
+        !_seasons.any((season) => season.drama.id == _drama.id)) {
+      unawaited(_loadSeasons(generation));
+    }
     try {
       final detail = await repository.detail(_drama);
       if (!_current(generation)) return;
@@ -91,7 +97,6 @@ class DramaDetails extends ChangeNotifier {
       _notify();
       repository.catalogUpdates.publish(_drama, retryCover: true);
       unawaited(store.refreshDrama(_drama).catchError((Object _) {}));
-      unawaited(_loadSeasons(generation));
       unawaited(_supplement(generation));
     } catch (error) {
       if (!_current(generation)) return;

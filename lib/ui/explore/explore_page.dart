@@ -73,9 +73,9 @@ class ExplorePageState extends State<ExplorePage> {
     );
   }
 
-  void _open(Drama drama) => openPage<void>(
+  void _open(Drama drama, {bool autoplay = false}) => openPage<void>(
     context,
-    (_) => DetailPage(store: widget.store, drama: drama),
+    (_) => DetailPage(store: widget.store, drama: drama, autoplay: autoplay),
   );
 
   Future<void> _pickCategory(BuildContext anchor) async {
@@ -389,7 +389,7 @@ class ExplorePageState extends State<ExplorePage> {
             : '看到第 ${entry.episode} 集',
         progress: total > 0 ? entry.episode / total : null,
         action: '继续第 $next 集',
-        onPlay: () => _open(drama),
+        onPlay: () => _open(drama, autoplay: true),
         onDetail: () => _open(drama),
       );
     }
@@ -403,7 +403,7 @@ class ExplorePageState extends State<ExplorePage> {
           if (drama.episodes > 0) '共 ${drama.episodes} 集',
         ].join(' · '),
         action: '立即观看',
-        onPlay: () => _open(drama),
+        onPlay: () => _open(drama, autoplay: true),
         onDetail: () => _open(drama),
       );
     }
