@@ -14,6 +14,7 @@ import 'danmaku_overlay.dart';
 import 'fade_presence.dart';
 import 'playback_handle.dart';
 import 'player_surface.dart';
+import 'player_status.dart';
 import 'player_video.dart';
 
 enum _Menu { speed, quality }
@@ -491,6 +492,7 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
     final colors = Theme.of(context).colorScheme;
     final playing = _session.player.state.playing;
     final menu = _menu;
+    final preferences = _session.preferences;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -500,17 +502,36 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
           left: televisionInset,
           right: televisionInset,
           top: 27,
-          child: Text(
-            '${_session.detail.drama.title} 第 ${_session.episode.number} 集',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 24,
-              fontWeight: FontWeight.w700,
-              height: 1.3,
-              shadows: [Shadow(color: Color(0x66000000), blurRadius: 3)],
-            ),
+          child: Row(
+            spacing: 24,
+            children: [
+              Expanded(
+                child: Text(
+                  '${_session.detail.drama.title} 第 ${_session.episode.number} 集',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    height: 1.3,
+                    shadows: [Shadow(color: Color(0x66000000), blurRadius: 3)],
+                  ),
+                ),
+              ),
+              if (_visible &&
+                  (preferences.showNetworkSpeed || preferences.showClock)) ...[
+                Row(
+                  spacing: 16,
+                  children: [
+                    if (preferences.showNetworkSpeed)
+                      NetworkSpeedText(session: _session, style: _statusStyle),
+                    if (preferences.showClock)
+                      const ClockText(style: _statusStyle),
+                  ],
+                ),
+              ],
+            ],
           ),
         ),
         _progress(bottom: 103, focusable: true),
@@ -582,6 +603,15 @@ class _TelevisionPlayerPageState extends State<TelevisionPlayerPage>
       ],
     );
   }
+
+  static const _statusStyle = TextStyle(
+    color: Colors.white,
+    fontSize: 24,
+    fontWeight: FontWeight.w600,
+    height: 1.3,
+    fontFeatures: [FontFeature.tabularFigures()],
+    shadows: [Shadow(color: Color(0x99000000), blurRadius: 3)],
+  );
 
   Widget _bubble() {
     final forward = _seekOffset >= 0;

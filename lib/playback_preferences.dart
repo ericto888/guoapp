@@ -98,6 +98,9 @@ class PlaybackPreferences {
     this.autoPictureInPicture = false,
     this.progressLine = true,
     this.videoFit = VideoFit.auto,
+    this.landscapePlayerForWide = true,
+    this.showClock = true,
+    this.showNetworkSpeed = true,
   });
 
   final double speed;
@@ -122,6 +125,14 @@ class PlaybackPreferences {
   final bool autoPictureInPicture;
   final bool progressLine;
   final VideoFit videoFit;
+
+  /// 手机竖屏播放横屏片源时使用横屏播放页（画面上方、简介与选集在下）。
+  /// 关闭后回到全屏竖屏播放器；转成横屏时仍自动全屏。
+  final bool landscapePlayerForWide;
+
+  /// 电视播放页播控右上角是否显示当前时间 / 下载速度。
+  final bool showClock;
+  final bool showNetworkSpeed;
 
   bool preopens({required bool television}) => preopen ?? !television;
 
@@ -148,6 +159,9 @@ class PlaybackPreferences {
     bool? autoPictureInPicture,
     bool? progressLine,
     VideoFit? videoFit,
+    bool? landscapePlayerForWide,
+    bool? showClock,
+    bool? showNetworkSpeed,
   }) => PlaybackPreferences(
     speed: speed ?? this.speed,
     quality: quality ?? this.quality,
@@ -171,6 +185,10 @@ class PlaybackPreferences {
     autoPictureInPicture: autoPictureInPicture ?? this.autoPictureInPicture,
     progressLine: progressLine ?? this.progressLine,
     videoFit: videoFit ?? this.videoFit,
+    landscapePlayerForWide:
+        landscapePlayerForWide ?? this.landscapePlayerForWide,
+    showClock: showClock ?? this.showClock,
+    showNetworkSpeed: showNetworkSpeed ?? this.showNetworkSpeed,
   );
 
   Map<String, dynamic> toJson() => {
@@ -196,6 +214,9 @@ class PlaybackPreferences {
     'autoPictureInPicture': autoPictureInPicture,
     'progressLine': progressLine,
     'videoFit': videoFit.name,
+    'landscapePlayerForWide': landscapePlayerForWide,
+    'showClock': showClock,
+    'showNetworkSpeed': showNetworkSpeed,
   };
 
   factory PlaybackPreferences.fromJson(Map<String, dynamic> value) {
@@ -247,6 +268,9 @@ class PlaybackPreferences {
       autoPictureInPicture: value['autoPictureInPicture'] as bool? ?? false,
       progressLine: value['progressLine'] as bool? ?? true,
       videoFit: VideoFit.values.asNameMap()[value['videoFit']] ?? VideoFit.auto,
+      landscapePlayerForWide: value['landscapePlayerForWide'] as bool? ?? true,
+      showClock: value['showClock'] as bool? ?? true,
+      showNetworkSpeed: value['showNetworkSpeed'] as bool? ?? true,
     );
   }
 }

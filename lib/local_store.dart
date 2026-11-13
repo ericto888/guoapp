@@ -36,6 +36,8 @@ const _backupFlags = {
   'deleteAfterAutoExport',
   'deleteAfterManualExport',
   'televisionKeyboard',
+  'blurCoversButton',
+  'blurCoversOnLaunch',
 };
 const _blocked = '本地用户配置损坏，已锁定访问。原始记录已保留，请重新读取或从备份恢复。';
 
@@ -429,6 +431,13 @@ class LocalStore extends ChangeNotifier {
   bool get deleteAfterAutoExport => _flag('deleteAfterAutoExport', false);
   bool get deleteAfterManualExport => _flag('deleteAfterManualExport', false);
   bool get shareUsage => _flag('shareUsage', true);
+
+  /// 发现页站源按钮左边的眼睛按钮；关闭后不显示该按钮。
+  bool get blurCoversButton => _flag('blurCoversButton', false);
+
+  /// 开屏自动模糊封面；未开启按钮时没有入口恢复，因此一并要求按钮开启。
+  bool get blurCoversOnLaunch =>
+      blurCoversButton && _flag('blurCoversOnLaunch', false);
   int get acceptedTerms => switch (_settings['acceptedTerms']) {
     final int version => version,
     _ => 0,
@@ -564,6 +573,10 @@ class LocalStore extends ChangeNotifier {
   );
   Future<void> setTelevisionKeyboard(bool value) =>
       _setting('televisionKeyboard', value);
+  Future<void> setBlurCoversButton(bool value) =>
+      _setting('blurCoversButton', value);
+  Future<void> setBlurCoversOnLaunch(bool value) =>
+      _setting('blurCoversOnLaunch', value);
   Future<void> setCheckUpdates(bool value) => _setting('checkUpdates', value);
   Future<void> setAutoExport(bool value) =>
       _setting('exportAfterDownload', value);
@@ -1026,6 +1039,8 @@ class LocalStore extends ChangeNotifier {
       'deleteAfterAutoExport': deleteAfterAutoExport,
       'deleteAfterManualExport': deleteAfterManualExport,
       'televisionKeyboard': televisionKeyboard,
+      'blurCoversButton': blurCoversButton,
+      'blurCoversOnLaunch': _flag('blurCoversOnLaunch', false),
       'libraries': libraries,
     });
     if (utf8.encode(content).length > 8 * 1024 * 1024) {

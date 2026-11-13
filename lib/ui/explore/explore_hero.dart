@@ -54,6 +54,7 @@ class ExploreHero extends StatelessWidget {
     required this.onPlay,
     required this.onDetail,
     this.progress,
+    this.blurCover = false,
   });
   final Drama drama;
   final String kicker;
@@ -62,6 +63,7 @@ class ExploreHero extends StatelessWidget {
   final VoidCallback onPlay;
   final VoidCallback onDetail;
   final double? progress;
+  final bool blurCover;
 
   _HeroMetrics _metrics(BuildContext context) =>
       switch (AppScope.formFactorOf(context)) {
@@ -283,6 +285,7 @@ class ExploreHero extends StatelessWidget {
                           drama: drama,
                           radius: metrics.coverRadius,
                           details: false,
+                          blurred: blurCover,
                         ),
                       ),
                     ),

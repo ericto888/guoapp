@@ -44,6 +44,9 @@ class _PlaybackPageState extends State<PlaybackPage> {
   final _pageScope = FocusScopeNode(debugLabel: 'playbackPage');
   final _pip = PictureInPicture.instance;
   bool _wideVideo = false;
+
+  /// 进入本页时定格的布局偏好：播放中改设置不重建当前页面，下次进入生效。
+  late final bool _landscapePlayerForWide;
   MediaQueryData? _media;
   bool _shown = false;
   Player? _bound;
@@ -65,6 +68,8 @@ class _PlaybackPageState extends State<PlaybackPage> {
   void initState() {
     super.initState();
     _wideVideo = _session.aspectKnown && _session.aspectRatio >= 1;
+    _landscapePlayerForWide =
+        widget.store.playbackPreferences.landscapePlayerForWide;
     _session.addListener(_changed);
     _padFullscreen.addListener(_padFullscreenChanged);
     _pip.addListener(_pipChanged);
@@ -254,11 +259,15 @@ class _PlaybackPageState extends State<PlaybackPage> {
     }
     return switch (form) {
       FormFactor.pad || FormFactor.window => _padPage(context, mini),
-      FormFactor.phone when _wideVideo => LandscapePlayerPage(
-        store: widget.store,
-        handle: widget.handle,
-        onMiniWindow: mini,
-      ),
+      FormFactor.phone
+          when _wideVideo &&
+              (_landscapePlayerForWide ||
+                  MediaQuery.orientationOf(context) == Orientation.landscape) =>
+        LandscapePlayerPage(
+          store: widget.store,
+          handle: widget.handle,
+          onMiniWindow: mini,
+        ),
       FormFactor.phone => PortraitPlayerPage(
         store: widget.store,
         handle: widget.handle,

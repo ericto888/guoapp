@@ -38,6 +38,15 @@ class ExplorePageState extends State<ExplorePage> {
   final _tabsKey = GlobalKey();
   final _refreshKey = GlobalKey<RefreshIndicatorState>();
   String _shown = '';
+  bool _blurCovers = false;
+
+  bool get _blurring => widget.store.blurCoversButton && _blurCovers;
+
+  @override
+  void initState() {
+    super.initState();
+    _blurCovers = widget.store.blurCoversOnLaunch;
+  }
 
   @override
   void didChangeDependencies() {
@@ -166,6 +175,17 @@ class ExplorePageState extends State<ExplorePage> {
                   onSwitchSource: (anchor) => pickSource(anchor, widget.store),
                   onOpenSearch: () => openSearch(context, widget.store, source),
                   onSearchSubmitted: (query) => _searchSubmitted(source, query),
+                  leading: [
+                    if (widget.store.blurCoversButton)
+                      BarButton(
+                        icon: _blurCovers
+                            ? Icons.visibility_off_rounded
+                            : Icons.visibility_rounded,
+                        tooltip: _blurCovers ? '显示封面' : '模糊封面',
+                        onPressed: () =>
+                            setState(() => _blurCovers = !_blurCovers),
+                      ),
+                  ],
                   actions: [
                     if (desktop)
                       BarButton(
@@ -224,7 +244,7 @@ class ExplorePageState extends State<ExplorePage> {
     Widget tabs,
   ) {
     final feed = explore.feed!;
-    final hero = _hero(explore);
+    final hero = _hero(explore, _blurring && !television);
     final items = explore.items;
     if (feed.items.isEmpty) {
       return FadeSwitcher(child: _status(feed));
@@ -321,6 +341,7 @@ class ExplorePageState extends State<ExplorePage> {
                 autofocus: television && hero == null,
                 heroScope: 'drama',
                 showScore: !explore.recommending,
+                blurCovers: _blurring && !television,
                 onOpen: _open,
                 onMore: (drama) => quickFollow(context, widget.store, drama),
               ),
@@ -373,7 +394,7 @@ class ExplorePageState extends State<ExplorePage> {
     );
   }
 
-  Widget? _hero(ExploreFeed explore) {
+  Widget? _hero(ExploreFeed explore, bool blurCover) {
     if (explore.resume case final entry?) {
       final drama = entry.drama;
       final total = drama.episodes;
@@ -389,6 +410,7 @@ class ExplorePageState extends State<ExplorePage> {
             : '看到第 ${entry.episode} 集',
         progress: total > 0 ? entry.episode / total : null,
         action: '继续第 $next 集',
+        blurCover: blurCover,
         onPlay: () => _open(drama, autoplay: true),
         onDetail: () => _open(drama),
       );
@@ -403,6 +425,7 @@ class ExplorePageState extends State<ExplorePage> {
           if (drama.episodes > 0) '共 ${drama.episodes} 集',
         ].join(' · '),
         action: '立即观看',
+        blurCover: blurCover,
         onPlay: () => _open(drama, autoplay: true),
         onDetail: () => _open(drama),
       );

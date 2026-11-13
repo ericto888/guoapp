@@ -360,6 +360,21 @@ void main() {
   });
 
   group('backup', () {
+    test(
+      'launch blur only applies while the cover button is enabled',
+      () async {
+        final store = await _open();
+        await store.setBlurCoversOnLaunch(true);
+        expect(store.blurCoversOnLaunch, isFalse);
+
+        await store.setBlurCoversButton(true);
+        expect(store.blurCoversOnLaunch, isTrue);
+
+        await store.setBlurCoversButton(false);
+        expect(store.blurCoversOnLaunch, isFalse);
+      },
+    );
+
     test('a round trip restores records and settings', () async {
       final store = await _open({'plugin_secret': 'stays-local'});
       await store.toggleFavorite(first);
@@ -369,6 +384,8 @@ void main() {
       await store.setThemeColor(ThemeColor.violet);
       await store.setAutoExport(true);
       await store.setShareUsage(false);
+      await store.setBlurCoversButton(true);
+      await store.setBlurCoversOnLaunch(true);
       final backup = await store.exportBackup();
       expect(backup, isNot(contains('stays-local')));
 
@@ -379,6 +396,8 @@ void main() {
       await store.setThemeColor(ThemeColor.blue);
       await store.setAutoExport(false);
       await store.setShareUsage(true);
+      await store.setBlurCoversButton(false);
+      await store.setBlurCoversOnLaunch(false);
       await store.importBackup(backup);
 
       final restarted = await restartStore(store);
@@ -389,6 +408,8 @@ void main() {
       expect(restarted.themeColor, ThemeColor.violet);
       expect(restarted.autoExport, isTrue);
       expect(restarted.shareUsage, isFalse);
+      expect(restarted.blurCoversButton, isTrue);
+      expect(restarted.blurCoversOnLaunch, isTrue);
       expect(restarted.preferences.getString('plugin_secret'), 'stays-local');
     });
 

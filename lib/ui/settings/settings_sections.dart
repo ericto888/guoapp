@@ -184,9 +184,39 @@ class SettingsSection extends StatelessWidget {
           ),
         ],
       ),
+      if (television)
+        SettingsCard(
+          children: [
+            SwitchTile(
+              title: '显示时间',
+              subtitle: '播控右上角显示当前时间',
+              value: preferences.showClock,
+              onChanged: (value) =>
+                  savePreferences(preferences.copyWith(showClock: value)),
+            ),
+            SwitchTile(
+              title: '显示网速',
+              subtitle: '播控右上角显示当前下载速度',
+              value: preferences.showNetworkSpeed,
+              onChanged: (value) => savePreferences(
+                preferences.copyWith(showNetworkSpeed: value),
+              ),
+            ),
+          ],
+        ),
       if ((Platform.isAndroid || Platform.isIOS) && !television)
         SettingsCard(
           children: [
+            SwitchTile(
+              title: '横屏片源竖屏播放',
+              subtitle:
+                  '竖着拿手机看横屏短剧时，画面在上、简介与选集在下；'
+                  '关闭后使用全屏竖屏播放器，转成横屏仍自动全屏，下次打开视频时生效',
+              value: preferences.landscapePlayerForWide,
+              onChanged: (value) => savePreferences(
+                preferences.copyWith(landscapePlayerForWide: value),
+              ),
+            ),
             SwitchTile(
               title: '双击快退/快进',
               subtitle: '左侧双击快退，右侧双击快进，关闭时均为暂停',

@@ -16,6 +16,18 @@ void main() {
     expect(preferences.danmakuShadow, 3);
     expect(preferences.danmakuCoverage, DanmakuCoverage.half);
     expect(preferences.danmakuWords, isEmpty);
+    expect(preferences.landscapePlayerForWide, isTrue);
+    expect(preferences.showClock, isTrue);
+    expect(preferences.showNetworkSpeed, isTrue);
+  });
+
+  test('wide videos use the landscape player by default and round trip', () {
+    expect(const PlaybackPreferences().landscapePlayerForWide, isTrue);
+
+    const off = PlaybackPreferences(landscapePlayerForWide: false);
+    final restored = PlaybackPreferences.fromJson(off.toJson());
+    expect(restored.landscapePlayerForWide, isFalse);
+    expect(restored.toJson(), off.toJson());
   });
 
   test('danmaku values round trip through json', () {

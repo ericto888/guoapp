@@ -2409,6 +2409,18 @@ class PlaybackSession extends ChangeNotifier {
     await platform.setProperty('demuxer-readahead-secs', limited ? '1' : '30');
   }
 
+  /// 当前下载速度（字节/秒）；本地播放或取不到属性时返回 null。
+  Future<int?> networkSpeed() async {
+    final platform = player.platform;
+    if (_closed || local || platform is! NativePlayer) return null;
+    try {
+      final value = await platform.getProperty('cache-speed');
+      return double.tryParse(value)?.round();
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 开关播放器的音频轨。预加载的待机实例以 aid=no 打开（只缓冲不出声），
   /// 换集等旧实例 stop 完成后再恢复 aid=auto，让音频输出干净地重新初始化。
   Future<void> _setAudioTrackEnabled(Player target, bool enabled) async {

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
@@ -42,11 +43,13 @@ class DramaCover extends StatelessWidget {
     this.rank,
     this.heroScope,
     this.showScore = false,
+    this.blurred = false,
   });
   final Drama drama;
   final double radius;
   final bool details;
   final bool showScore;
+  final bool blurred;
   final int? rank;
   final String? heroScope;
   static const imagesDisabled = bool.fromEnvironment('DISABLE_REMOTE_IMAGES');
@@ -86,7 +89,15 @@ class DramaCover extends StatelessWidget {
         tag: coverHeroTag(drama.id, heroScope ?? ''),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(radius),
-          child: image,
+          child: ImageFiltered(
+            enabled: blurred,
+            imageFilter: ImageFilter.blur(
+              sigmaX: 16,
+              sigmaY: 16,
+              tileMode: TileMode.clamp,
+            ),
+            child: image,
+          ),
         ),
       ),
     );
