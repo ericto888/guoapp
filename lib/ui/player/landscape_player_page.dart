@@ -22,6 +22,7 @@ import 'episode_grid.dart';
 import 'playback_handle.dart';
 import 'playback_sheets.dart';
 import 'fade_presence.dart';
+import 'player_status.dart';
 import 'player_surface.dart';
 import 'player_video.dart';
 import 'swipe_controls.dart';
@@ -73,6 +74,13 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   bool _sidePanelShown = false;
   DateTime _now = DateTime.now();
   ({int level, bool charging})? _battery;
+
+  static const _statusStyle = TextStyle(
+    color: Colors.white,
+    fontSize: 13,
+    fontWeight: FontWeight.w600,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
 
   PlaybackSession get _session => widget.handle.session;
 
@@ -868,15 +876,16 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                 _batteryMark(battery),
                 const SizedBox(width: 12),
               ],
-              Text(
-                '${_two(_now.hour)}:${_two(_now.minute)}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  fontFeatures: [FontFeature.tabularFigures()],
+              if (session.store.playbackPreferences.showNetworkSpeed)
+                NetworkSpeedText(session: session, style: _statusStyle),
+              if (session.store.playbackPreferences.showNetworkSpeed &&
+                  session.store.playbackPreferences.showClock)
+                const SizedBox(width: 12),
+              if (session.store.playbackPreferences.showClock)
+                Text(
+                  '${_two(_now.hour)}:${_two(_now.minute)}',
+                  style: _statusStyle,
                 ),
-              ),
               const SizedBox(width: 4),
               if (session.danmakuSupported) _danmakuButton(context),
               if (widget.onMiniWindow case final onMiniWindow?)

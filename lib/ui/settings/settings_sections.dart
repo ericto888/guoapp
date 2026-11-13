@@ -184,7 +184,8 @@ class SettingsSection extends StatelessWidget {
           ),
         ],
       ),
-      if (television)
+      // 电视播控和手机横屏播控右上角都会显示时间与网速，桌面播放页不显示。
+      if (television || Platform.isAndroid || Platform.isIOS)
         SettingsCard(
           children: [
             SwitchTile(
