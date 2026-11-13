@@ -579,6 +579,9 @@ class PlaybackSession extends ChangeNotifier {
   bool get pipActive => _pipActive;
 
   bool get paused {
+    // 切出 App 时画面还会停留一瞬（切换动画 / 系统快照），这段后台过渡
+    // 帧不能显示暂停按钮，否则离开和回来时都会闪一下 ▶。
+    if (!_foreground) return false;
     // 恢复过程中播放器被临时 pause 过，_playIntent 不能直接当用户意图用，
     // 否则锁屏回来会先闪一下播放按钮。
     if (_resumeInProgress) return !_resumeIntent || _pausedByUser;
