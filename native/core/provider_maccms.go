@@ -19,16 +19,41 @@ type maccmsSite struct {
 	Name     string
 	APIBase  string
 	SiteBase string
+	// Mirrors 是同一套接口的备用线路，APIBase 请求失败时按顺序重试。
+	Mirrors []string
 	// AllCategories 为 true 时直接采用站点的全部叶子分类，
 	// 不再按影视分类白名单过滤（如黄色仓库这类非影视站）。
 	AllCategories bool
+}
+
+// apiBases 返回接口候选线路：主线路在前，备用线路按登记顺序去重。
+func (s maccmsSite) apiBases() []string {
+	bases := make([]string, 0, len(s.Mirrors)+1)
+	seen := map[string]bool{}
+	for _, base := range append([]string{s.APIBase}, s.Mirrors...) {
+		if base == "" || seen[base] {
+			continue
+		}
+		seen[base] = true
+		bases = append(bases, base)
+	}
+	return bases
 }
 
 var maccmsSites = map[string]maccmsSite{
 	sourceZuid: {Source: sourceZuid, Name: "最大影视", APIBase: "https://api.zuidapi.com", SiteBase: "https://www.zuidazy.net"},
 	sourceFfzy: {Source: sourceFfzy, Name: "非凡影视", APIBase: "https://api.ffzyapi.com", SiteBase: "https://www.ffzyapi.com"},
 	sourceRycj: {Source: sourceRycj, Name: "如意影视", APIBase: "https://cj.rycjapi.com", SiteBase: "https://www.rycjapi.com"},
-	sourceHsck: {Source: sourceHsck, Name: "黄色仓库", APIBase: "https://hsckzy888.com", SiteBase: "https://hsckzy888.com", AllCategories: true},
+	// 黄色仓库主域名 hsckzy888.com 在国内被 DNS 拦截（解析到 0.0.0.0），
+	// 默认走未被拦截的同站线路，888 只作为最后的备用。
+	sourceHsck: {
+		Source:        sourceHsck,
+		Name:          "黄色仓库",
+		APIBase:       "https://hsckzy001.com",
+		SiteBase:      "https://hsckzy001.com",
+		Mirrors:       []string{"https://hszyckapi.vip", "https://hsckzy888.com"},
+		AllCategories: true,
+	},
 }
 
 // maccmsCategoryNames 只保留影视相关的叶子分类，父分类（电影片/连续剧/综艺/动漫）接口返回空。
@@ -80,24 +105,33 @@ func validMaccmsCategory(category string) bool {
 	return maccmsIDPattern.MatchString(category)
 }
 
-// maccmsRequest 走采集接口，返回当页数据。
+// maccmsRequest 走采集接口，返回当页数据；主线路失败时按备用线路重试。
 func (d *Downloader) maccmsRequest(ctx context.Context, source string, params url.Values) (maccmsPage, error) {
 	site, ok := maccmsSiteOf(source)
 	if !ok {
 		return maccmsPage{}, errors.New("站源未接入采集接口")
 	}
-	address := site.APIBase + "/api.php/provide/vod/?" + params.Encode()
-	body, err := d.fetchProviderText(ctx, address, site.SiteBase+"/")
-	if err != nil {
-		return maccmsPage{}, err
+	var lastErr error
+	for _, base := range site.apiBases() {
+		if err := ctx.Err(); err != nil {
+			return maccmsPage{}, err
+		}
+		address := base + "/api.php/provide/vod/?" + params.Encode()
+		body, err := d.fetchProviderText(ctx, address, site.SiteBase+"/")
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		var page maccmsPage
+		decoder := json.NewDecoder(strings.NewReader(body))
+		decoder.UseNumber()
+		if err := decoder.Decode(&page); err != nil {
+			lastErr = fmt.Errorf("%s接口返回格式异常", site.Name)
+			continue
+		}
+		return page, nil
 	}
-	var page maccmsPage
-	decoder := json.NewDecoder(strings.NewReader(body))
-	decoder.UseNumber()
-	if err := decoder.Decode(&page); err != nil {
-		return maccmsPage{}, fmt.Errorf("%s接口返回格式异常", site.Name)
-	}
-	return page, nil
+	return maccmsPage{}, lastErr
 }
 
 // fetchMaccmsCategories 读取站点分类，仅保留影视类目并保持站点顺序。

@@ -31,8 +31,11 @@ func TestHsckMaccmsSite(t *testing.T) {
 	if !ok {
 		t.Fatal("hsck 未登记采集接口")
 	}
-	if site.APIBase != "https://hsckzy888.com" || !site.AllCategories {
+	if site.APIBase != "https://hsckzy001.com" || !site.AllCategories {
 		t.Fatalf("hsck 站点配置不正确：%+v", site)
+	}
+	if bases := site.apiBases(); len(bases) != 3 || bases[0] != "https://hsckzy001.com" {
+		t.Fatalf("hsck 备用线路顺序不正确：%v", bases)
 	}
 	if !isHuangguoProviderSource(sourceHsck) {
 		t.Fatal("hsck 未纳入 native 站源白名单")
