@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
@@ -286,10 +287,14 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
       _session.togglePlayback();
       return;
     }
+    // 手机/平板全屏横屏：左右 1/4 区域双击快退/快进，中间双击暂停。
+    // 桌面端保持双击暂停（设置项只在手机、平板展示）。
+    final seek =
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS) &&
+        _session.store.playbackPreferences.doubleTapSeek;
     final x = details.localPosition.dx;
-    final side =
-        widget.onFullscreen == null ||
-            !_session.store.playbackPreferences.doubleTapSeek
+    final side = !seek
         ? 0
         : x < width / 4
         ? -1
