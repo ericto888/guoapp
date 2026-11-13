@@ -110,6 +110,10 @@ func (engine *nativeEngine) nativeCached(source string) nativeCatalogResult {
 		Fresh:   len(items) > 0 && state.Warning == "" && !state.UpdatedAt.IsZero() && age >= 0 && age < nativeCatalogTTL,
 		Warning: state.Warning,
 	}
+	// 旧版本给黄瓜写入了空封面和全站默认分享图，这类缓存要立即重新拉取，不能等 TTL 过期。
+	if strings.HasPrefix(source, sourceHuanggua) && !huangguaCoversReady(items) {
+		result.Fresh = false
+	}
 	if engine.catalogSaveError != nil {
 		result.Warning = joinNativeWarnings(result.Warning, engine.catalogSaveError.Error())
 		result.saveError = engine.catalogSaveError
