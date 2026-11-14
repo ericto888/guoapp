@@ -141,14 +141,14 @@ func (p *jrs33Provider) resolveChannel(ctx context.Context, rawURL string) (stri
 		if err := validateJRS33PublicHost(ctx, parsed.Hostname()); err != nil {
 			return "", nil, err
 		}
-		return parsed.String(), map[string]string{"Referer": parsed.String()}, nil
+		return parsed.String(), map[string]string{"Referer": parsed.String(), "User-Agent": jrs33PlayerUserAgent}, nil
 	}
 	mediaURL, referer, err := p.resolveJRS33MediaPage(ctx, parsed.String(), 0, make(map[string]bool))
 	if err != nil { return "", nil, err }
 	if mediaURL == "" { return "", nil, errors.New("频道页面没有找到可直接播放的 HLS/MP4 视频地址") }
 	return mediaURL, map[string]string{
 		"Referer": referer,
-		"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+		"User-Agent": jrs33PlayerUserAgent,
 	}, nil
 }
 
@@ -190,6 +190,14 @@ func (p *jrs33Provider) resolveJRS33MediaPage(ctx context.Context, rawURL string
 	if err != nil { return "", "", fmt.Errorf("读取直播频道失败: %w", err) }
 	if isJRS33ChallengePage(body) { return "", "", errors.New("直播频道触发 Cloudflare/反爬验证") }
 	if mediaURL := parseJRS33MediaURL(body, finalURL); mediaURL != "" {
+		media, parseErr := url.Parse(mediaURL)
+		if parseErr != nil || media.Scheme != "https" || media.Hostname() == "" ||
+			media.User != nil || media.Port() != "" {
+			return "", finalURL, errors.New("直播媒体地址无效，已拒绝请求")
+		}
+		if err := validateJRS33PublicHost(ctx, media.Hostname()); err != nil {
+			return "", finalURL, errors.New("直播媒体域名不安全或无法访问")
+		}
 		return mediaURL, finalURL, nil
 	}
 	if depth >= 2 { return "", finalURL, nil }
@@ -636,6 +644,8 @@ func buildJRS33MatchFromRow(row *xhtml.Node, baseURL, league, home, away, timeTe
 	if len(cornerNodes) > 0 { if hs, as, ok := parseJRS33Score(jrs33NodeText(cornerNodes[0])); ok { item.CornerHome, item.CornerAway = &hs, &as } }
 	return item
 }
+
+const jrs33PlayerUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 
 var jrs33MediaExtensionRE = regexp.MustCompile("(?i)\\.(?:m3u8|mp4|m4v|mov|flv)(?:[?#][^\\s\"'<>]*)?")
 var jrs33MediaAttributeRE = regexp.MustCompile("(?i)(?:url|src|file|playurl|m3u8)\\s*[:=]\\s*[\"']([^\"']+)[\"']")
