@@ -655,8 +655,12 @@ func jrs33RowStatusText(row *xhtml.Node, timeText string) string {
 		for _, key := range []string{"title", "aria-label", "data-status", "data-time", "data-minute", "data-period"} {
 			if value := jrs33Attr(n, key); value != "" { parts = append(parts, value) }
 		}
-		class := jrs33Attr(n, "class")
-		if class != "" && jrs33StatusClassRE.MatchString(class) { parts = append(parts, class) }
+		class := strings.ToLower(jrs33Attr(n, "class"))
+		if class != "" && (jrs33StatusClassRE.MatchString(class) ||
+			strings.Contains(class, "lab_time") || strings.Contains(class, "lab_status") ||
+			strings.Contains(class, "match_status") || strings.Contains(class, "time_status")) {
+			parts = append(parts, class, cleanJRS33Text(jrs33NodeText(n)))
+		}
 	}
 	return cleanJRS33Text(strings.Join(parts, " "))
 }
