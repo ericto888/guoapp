@@ -193,6 +193,10 @@ func cloneJRS33Matches(matches []jrs33Match) []jrs33Match {
 		result[i].Channels = append([]jrs33LiveChannel(nil), matches[i].Channels...)
 		if matches[i].HomeScore != nil { v := *matches[i].HomeScore; result[i].HomeScore = &v }
 		if matches[i].AwayScore != nil { v := *matches[i].AwayScore; result[i].AwayScore = &v }
+		if matches[i].HalfTimeHomeScore != nil { v := *matches[i].HalfTimeHomeScore; result[i].HalfTimeHomeScore = &v }
+		if matches[i].HalfTimeAwayScore != nil { v := *matches[i].HalfTimeAwayScore; result[i].HalfTimeAwayScore = &v }
+		if matches[i].CornerHome != nil { v := *matches[i].CornerHome; result[i].CornerHome = &v }
+		if matches[i].CornerAway != nil { v := *matches[i].CornerAway; result[i].CornerAway = &v }
 	}
 	return result
 }
