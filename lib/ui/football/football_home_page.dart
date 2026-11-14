@@ -62,6 +62,7 @@ class _FootballHomePageState extends State<FootballHomePage> {
     'finished' => '已结束',
     'postponed' => '延期',
     'cancelled' => '已取消',
+    'unknown' => '状态待确认',
     _ => '未开始',
   };
 
@@ -283,6 +284,13 @@ class _FootballHomePageState extends State<FootballHomePage> {
                           textAlign: TextAlign.center,
                           style: theme.textTheme.bodySmall,
                         ),
+                        if (match.matchTime.isNotEmpty)
+                          Text(match.matchTime, textAlign: TextAlign.center,
+                            style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.error)),
+                        if (match.halfTimeHomeScore != null && match.halfTimeAwayScore != null)
+                          Text('半场 ${match.halfTimeHomeScore}:${match.halfTimeAwayScore}', textAlign: TextAlign.center, style: theme.textTheme.bodySmall),
+                        if (match.cornerHome != null && match.cornerAway != null)
+                          Text('角球 ${match.cornerHome}:${match.cornerAway}', textAlign: TextAlign.center, style: theme.textTheme.bodySmall),
                         if (match.detailUrl.isNotEmpty ||
                             match.channels.isNotEmpty) ...[
                           const SizedBox(height: 8),
