@@ -74,11 +74,6 @@ func (downloader *Downloader) hongguoPlanSeasons(ctx context.Context, bookID str
 	return seasons, true
 }
 
-// parseHongguoPlanSeasons 解析 plan/v 的返回结构。
-//
-// 实测返回格式：response.data 是卡片数组，每个卡片含
-// video_data[]（同系列各季，content_type=1004 正常季 / 1007 待上线预告）
-// 与 book_data[]（原著小说，跳过）；has_more/next_offset 用于分页。
 // hongguoPlanGroupContainsBook 判断官方系列卡片是否包含当前作品 ID。
 func hongguoPlanGroupContainsBook(videoList []any, bookID string) bool {
 	if bookID == "" {
@@ -96,6 +91,12 @@ func hongguoPlanGroupContainsBook(videoList []any, bookID string) bool {
 	return false
 }
 
+// parseHongguoPlanSeasons 解析 plan/v 的返回结构，只解析包含当前 bookID 的官方系列卡片。
+//
+// 实测返回格式：response.data 是卡片数组，每个卡片含
+// video_data[]（同系列各季，content_type=1004 正常季 / 1007 待上线预告）
+// 与 book_data[]（原著小说，跳过）；has_more/next_offset 用于分页。
+// 不同 show_type=547 卡片之间绝不合并。
 func parseHongguoPlanSeasons(result map[string]any, bookID string) ([]hongguoPlanSeason, bool, string) {
 	data := result["data"]
 	if data == nil {
