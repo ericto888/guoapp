@@ -332,25 +332,20 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 		if base == "https://www.jrkan.com" {
 			home, finalURL, homeErr := provider.getText(ctx, base+"/?lan=0", "")
 			if homeErr == nil {
+				rawHome := home
 				expanded, expandErr := provider.expandIndexScript(ctx, home, finalURL)
 				if expandErr == nil { home = expanded }
 				doc, parseErr := xhtml.Parse(strings.NewReader(home))
 				if parseErr == nil {
 					rows := findJRS33Elements(doc, func(n *xhtml.Node) bool { return hasJRS33Class(n, "d-touch") })
 					t.Logf("RAW_HOME final=%q bytes=%d rows=%d expanded=%v", finalURL, len(home), len(rows), expandErr == nil)
-					seenTypes := make(map[string]bool)
-					loggedTypes := 0
 					for i, row := range rows {
-						stype := jrs33Attr(row, "data-stype")
-						if seenTypes[stype] { continue }
-						seenTypes[stype] = true
-						if loggedTypes >= 8 { break }
+						if i >= 12 { break }
 						var markup strings.Builder
 						_ = xhtml.Render(&markup, row)
-						t.Logf("RAW_ROW[%d] stype=%q %s", i, stype, markup.String())
-						loggedTypes++
+						t.Logf("RAW_ROW[%d] %s", i, markup.String())
 					}
-					if scriptRef := jrs33IndexScriptRE.FindStringSubmatch(home); len(scriptRef) > 1 {
+					if scriptRef := jrs33IndexScriptRE.FindStringSubmatch(rawHome); len(scriptRef) > 1 {
 						baseURL, _ := url.Parse(finalURL)
 						refURL, _ := url.Parse(stdhtml.UnescapeString(scriptRef[1]))
 						if baseURL != nil && refURL != nil {
@@ -360,10 +355,11 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 								for _, token := range []string{"getPlayUrl", "document.write", "providerid", "urlid", "data-play"} {
 									pos := strings.Index(script, token)
 									if pos >= 0 {
-										start, end := pos-500, pos+1800
-										if start < 0 { start = 0 }; if end > len(script) { end = len(script) }
-										t.Logf("SCRIPT_%s %s", token, script[start:end])
-										}
+										start, finish := pos-500, pos+1800
+										if start < 0 { start = 0 }
+										if finish > len(script) { finish = len(script) }
+										t.Logf("SCRIPT_%s %s", token, script[start:finish])
+									}
 								}
 							}
 						}
