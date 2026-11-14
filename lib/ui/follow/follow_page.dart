@@ -82,8 +82,16 @@ class _FollowPageState extends State<FollowPage> {
   });
 
   void _open(Drama drama) {
-    if (widget.store.following(drama.id)?.hasUpdates ?? false) {
+    final state = widget.store.following(drama.id);
+    if (state?.hasUpdates ?? false) {
       saveSetting(context, () => widget.store.markUpdatesRead(drama.id));
+    }
+    for (final notice in state?.seriesSeasons.values ?? const <SeriesSeasonNotice>[]) {
+      if (!notice.read) {
+        unawaited(
+          widget.store.markSeriesSeasonRead(drama.id, notice.id),
+        );
+      }
     }
     openPage<void>(
       context,
@@ -641,8 +649,12 @@ class _FollowPageState extends State<FollowPage> {
       caption: caption,
       tag: SourceSite.byId(drama.source).name,
       heroScope: hero ? 'drama' : null,
-      badge: state != null && state.hasUpdates
+      badge: state == null
+          ? null
+          : state.hasUpdates
           ? '${state.newEpisodes} 集更新'
+          : state.seriesSeasons.values.any((notice) => !notice.read)
+          ? '新季上线'
           : null,
       selected: selection?.contains(drama.id),
       onTap: selection == null ? () => _open(drama) : () => _toggle(drama.id),
