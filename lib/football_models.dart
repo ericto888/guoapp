@@ -22,6 +22,11 @@ class FootballMatch {
     this.status = 'scheduled',
     this.homeScore,
     this.awayScore,
+    this.matchTime = '',
+    this.halfTimeHomeScore,
+    this.halfTimeAwayScore,
+    this.cornerHome,
+    this.cornerAway,
     this.detailUrl = '',
     this.channels = const [],
   });
@@ -34,6 +39,11 @@ class FootballMatch {
   final String status;
   final int? homeScore;
   final int? awayScore;
+  final String matchTime;
+  final int? halfTimeHomeScore;
+  final int? halfTimeAwayScore;
+  final int? cornerHome;
+  final int? cornerAway;
   final String detailUrl;
   final List<FootballLiveChannel> channels;
 
@@ -48,6 +58,11 @@ class FootballMatch {
     status: json['status'] as String? ?? 'scheduled',
     homeScore: (json['homeScore'] as num?)?.toInt(),
     awayScore: (json['awayScore'] as num?)?.toInt(),
+    matchTime: json['matchTime'] as String? ?? '',
+    halfTimeHomeScore: (json['halfTimeHomeScore'] as num?)?.toInt(),
+    halfTimeAwayScore: (json['halfTimeAwayScore'] as num?)?.toInt(),
+    cornerHome: (json['cornerHome'] as num?)?.toInt(),
+    cornerAway: (json['cornerAway'] as num?)?.toInt(),
     detailUrl: json['detailUrl'] as String? ?? '',
     channels: [
       for (final item in json['channels'] as List? ?? const [])
