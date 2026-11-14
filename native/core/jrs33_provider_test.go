@@ -256,6 +256,26 @@ func TestParseJRS33LiveMatchMetadata(t *testing.T) {
 	if got.CornerHome == nil || got.CornerAway == nil || *got.CornerHome != 4 || *got.CornerAway != 2 { t.Fatalf("corners=%v:%v", got.CornerHome, got.CornerAway) }
 }
 
+func TestJRS33RealHomepageScoreTitleIsNotMatchMinute(t *testing.T) {
+	html := `<ul class="item play d-touch active" data-lid="4625690,1,4625690" data-stype="zqlq">
+<li class="lab_events"><span class="name">澳女联</span></li>
+<li class="lab_time">11-14 12:00</li>
+<li class="lab_team_home"><strong class="name">墨尔本胜利女足</strong><em class="bf" title="2"></em></li>
+<li class="lab_vs active"><div class="sub_status"><em class="spin_ant"></em></div></li>
+<li class="lab_team_away"><strong class="name">阿德莱德联女足</strong><em class="bf" title="2"></em></li>
+</ul>`
+	matches := parseJRS33Home(html, "https://www.jrkan.com/")
+	if len(matches) != 1 {
+		t.Fatalf("matches=%d, want 1", len(matches))
+	}
+	if matches[0].Status != "unknown" || matches[0].MatchTime != "" {
+		t.Fatalf("real homepage placeholder parsed as status/time %q/%q", matches[0].Status, matches[0].MatchTime)
+	}
+	if matches[0].HomeScore != nil || matches[0].AwayScore != nil {
+		t.Fatalf("placeholder title must not become score: %v:%v", matches[0].HomeScore, matches[0].AwayScore)
+	}
+}
+
 func TestJRS33UnknownStatusIsNotScheduled(t *testing.T) {
 	if got := parseJRS33Status("11-14 14:00"); got != "unknown" { t.Fatalf("unknown time status mapped to %q", got) }
 	if got := parseJRS33Status("第 23 分钟"); got != "live" { t.Fatalf("minute status mapped to %q", got) }
