@@ -1,0 +1,83 @@
+name: Football test iOS IPA
+
+on:
+  push:
+    branches:
+      - feature/football-center-phase1
+    paths:
+      - '.github/workflows/football-test-ipa.yml'
+      - 'lib/**'
+      - 'native/**'
+      - 'ios/**'
+      - 'scripts/build_ios.py'
+      - 'scripts/app_build.py'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: football-test-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOPROXY: https://proxy.golang.org,direct
+  GOSUMDB: sum.golang.org
+  PUB_HOSTED_URL: https://pub.flutter-io.cn
+  FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+  UPDATE_SERVER_URL: ${{ vars.UPDATE_SERVER_URL }}
+  ZHENGUOJIAN_PACKAGE_NAME: ${{ vars.ZHENGUOJIAN_PACKAGE_NAME }}
+  ZHENGUOJIAN_DISPLAY_NAME: ${{ vars.ZHENGUOJIAN_DISPLAY_NAME }}
+  ZHENGUOJIAN_LATIN_NAME: ${{ vars.ZHENGUOJIAN_LATIN_NAME }}
+  PROJECT_URL: ${{ vars.PROJECT_URL }}
+  TELEGRAM_GROUP_URL: ${{ vars.TELEGRAM_GROUP_URL }}
+  TELEGRAM_CHANNEL_URL: ${{ vars.TELEGRAM_CHANNEL_URL }}
+
+jobs:
+  build-ios:
+    name: Build ${{ matrix.edition }} unsigned IPA
+    runs-on: macos-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - edition: hongguojian
+            arguments: ''
+          - edition: zhenguojian
+            arguments: '--all-sources'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: native/go.mod
+          cache-dependency-path: native/go.sum
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: Check Xcode and CocoaPods
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          if ! command -v pod >/dev/null 2>&1; then brew install cocoapods; fi
+          pod --version
+          go version
+          flutter --version
+          flutter precache --ios
+      - name: Build unsigned iOS IPA
+        run: python scripts/build_ios.py ${{ matrix.arguments }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.edition }}-football-test-ipa
+          path: dist/ios/*-ios-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
