@@ -24,7 +24,7 @@ class PlaybackHandle {
     bool autoplay = true,
     bool preopen = true,
     PlaybackPlan? initialPlan,
-    Future<PlaybackPlan> Function()? directResolver,
+    Future<PlaybackPlan> Function(int index)? directResolver,
     bool recordProgress = true,
   }) {
     final main = _respawnPlayer();
