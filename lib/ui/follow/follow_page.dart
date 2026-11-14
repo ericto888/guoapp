@@ -89,28 +89,22 @@ class _FollowPageState extends State<FollowPage> {
     _selection = selection;
   });
 
-  void _open(Drama drama, {bool upcomingPreview = false}) {
+  void _open(Drama drama) {
     final state = widget.store.following(drama.id);
-    if (!upcomingPreview && (state?.hasUpdates ?? false)) {
+    if (state?.hasUpdates ?? false) {
       saveSetting(context, () => widget.store.markUpdatesRead(drama.id));
     }
-    if (!upcomingPreview) {
-      final notices = state?.seriesSeasons.values;
-      if (notices != null) {
-        for (final notice in notices) {
-          if (!notice.read) {
-            unawaited(widget.store.markSeriesSeasonRead(drama.id, notice.id));
-          }
+    final notices = state?.seriesSeasons.values;
+    if (notices != null) {
+      for (final notice in notices) {
+        if (!notice.read) {
+          unawaited(widget.store.markSeriesSeasonRead(drama.id, notice.id));
         }
       }
     }
     openPage<void>(
       context,
-      (_) => DetailPage(
-        store: widget.store,
-        drama: drama,
-        upcomingPreview: upcomingPreview,
-      ),
+      (_) => DetailPage(store: widget.store, drama: drama),
     );
   }
 
@@ -595,8 +589,6 @@ class _FollowPageState extends State<FollowPage> {
                 child: _SeasonReservationSwitcher(
                   store: widget.store,
                   onOpen: _open,
-                  onOpenUpcoming: (drama) =>
-                      _open(drama, upcomingPreview: true),
                   onStartFollowing: _startFollowingReservation,
                 ),
               ),
@@ -766,13 +758,11 @@ class _SeasonReservationSwitcher extends StatefulWidget {
   const _SeasonReservationSwitcher({
     required this.store,
     required this.onOpen,
-    required this.onOpenUpcoming,
     required this.onStartFollowing,
   });
 
   final LocalStore store;
   final ValueChanged<Drama> onOpen;
-  final ValueChanged<Drama> onOpenUpcoming;
   final Future<void> Function(SeasonReservation reservation, Drama drama)
   onStartFollowing;
 
@@ -1027,9 +1017,9 @@ class _SeasonReservationSwitcherState
                               season,
                               reservation: reservation,
                             ),
-                            // 待上线季进入轻量简介模式，不加载剧集与季列表。
+                            // 待上线季只展示预约信息，不允许进入详情/剧情简介。
                             onTap: season.upcoming
-                                ? () => widget.onOpenUpcoming(season.drama)
+                                ? null
                                 : () => widget.onOpen(season.drama),
                             onMore: () =>
                                 _cancelReservation(reservation, season),
