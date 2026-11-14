@@ -73,14 +73,11 @@ class MinePage extends StatelessWidget {
   Widget _userCard(BuildContext context) =>
       _UserCard(store: store, onTap: () => openUsers(context, store));
 
-  void _openFootball(BuildContext context) => openPage<void>(
-    context,
-    (_) => FootballHomePage(store: store),
-  );
+  void _openFootball(BuildContext context) =>
+      openPage<void>(context, (_) => FootballHomePage(store: store));
 
-  Widget _footballEntry(BuildContext context) => _FootballEntry(
-    onTap: () => _openFootball(context),
-  );
+  Widget _footballEntry(BuildContext context) =>
+      _FootballEntry(onTap: () => _openFootball(context));
 
   Widget _settings(BuildContext context) => _SettingsEntry(
     onTap: () => openPage<void>(context, (_) => SettingsPage(store: store)),
@@ -742,13 +739,19 @@ class _FootballEntry extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('足球赛事', style: TextStyle(fontWeight: FontWeight.w700)),
+                      Text(
+                        '足球赛事',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
                       SizedBox(height: 2),
                       Text('赛程、比分与直播入口'),
                     ],
                   ),
                 ),
-                Icon(Icons.chevron_right_rounded, color: colors.onSurfaceVariant),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: colors.onSurfaceVariant,
+                ),
               ],
             ),
           ),
