@@ -949,7 +949,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
               const Spacer(),
               _icon(
                 Icons.playlist_play_rounded,
-                '选集',
+                session.detail.drama.source == 'football' ? '切换线路' : '选集',
                 () => _openPanel(_Panel.episodes),
                 iconSize: 28,
               ),
@@ -1333,7 +1333,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
               children: [
                 Text(
                   isEpisodes
-                      ? '选集'
+                      ? session.detail.drama.source == 'football' ? '切换线路' : '选集'
                       : isSettings
                       ? '播放设置'
                       : '',
@@ -1341,7 +1341,11 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                 ),
                 Expanded(
                   child: Text(
-                    isEpisodes ? '共 ${session.detail.episodes.length} 集' : '',
+                    isEpisodes
+                        ? session.detail.drama.source == 'football'
+                              ? '共 ${session.detail.episodes.length} 条线路'
+                              : '共 ${session.detail.episodes.length} 集'
+                        : '',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
