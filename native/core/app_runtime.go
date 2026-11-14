@@ -125,6 +125,7 @@ type nativeInput struct {
 	Entries         []nativeDownloadEpisode `json:"entries"`
 	JobID           string                  `json:"jobId"`
 	MatchID         string                  `json:"matchId"`
+	ChannelURL      string                  `json:"channelUrl"`
 	Command         string                  `json:"command"`
 	Action          string                  `json:"action"`
 	Directory       string                  `json:"directory"`
@@ -387,7 +388,9 @@ func nativeDispatch(input nativeInput) (any, error) {
 		return nil, errors.New("应用核心尚未就绪，请重新打开应用")
 	}
 	duration := 60 * time.Second
-	if input.Action == "moveDownloads" {
+	if input.Action == "footballResolveChannel" {
+		duration = 20 * time.Second
+	} else if input.Action == "moveDownloads" {
 		duration = 10 * time.Minute
 	} else if input.Action == "danmaku" {
 		duration = 10 * time.Second
@@ -409,6 +412,8 @@ func nativeDispatch(input nativeInput) (any, error) {
 		return engine.footballMatches(ctx, input.Force)
 	case "footballMatchChannels":
 		return engine.footballMatchChannels(ctx, input.MatchID)
+	case "footballResolveChannel":
+		return engine.footballResolveChannel(ctx, input.ChannelURL)
 	case "updateSystemProxy":
 		return true, engine.updateSystemProxy(input.SystemProxy)
 	case "resourceSettings":
