@@ -3401,7 +3401,9 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   Future<void> saveProgress({bool quiet = false}) async {
-    if (!recordProgress || !_engaged || _openedIndex < 0 || store.profileEpoch != _epoch) return;
+    if (!recordProgress || !_engaged || _openedIndex < 0 || store.profileEpoch != _epoch) {
+      return;
+    }
     final position = player.state.position.inMilliseconds / 1000;
     final duration = player.state.duration.inMilliseconds / 1000;
     if (position < .1) return;
