@@ -142,6 +142,9 @@ func (p *jrs33Provider) fetchMatches(ctx context.Context, base string) ([]jrs33M
 	homeURL := strings.TrimRight(base, "/") + "/?lan=0"
 	home, finalURL, err := p.getText(ctx, homeURL, "")
 	if err != nil { return nil, fmt.Errorf("读取 JRS33 首页失败: %w", err) }
+	if isJRS33ChallengePage(home) {
+		return nil, errors.New("JRS33 返回 Cloudflare/反爬验证页，赛事数据未获取成功")
+	}
 	hasIndexScript := jrs33IndexScriptRE.MatchString(home)
 	expanded, expandErr := p.expandIndexScript(ctx, home, finalURL)
 	if expandErr == nil { home = expanded }
