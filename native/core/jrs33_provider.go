@@ -54,6 +54,7 @@ type jrs33Match struct {
 	Kickoff string `json:"kickoff,omitempty"`
 	Status string `json:"status"`
 	MatchTime string `json:"matchTime,omitempty"`
+	StatusEvidence string `json:"statusEvidence,omitempty"`
 	HomeScore *int `json:"homeScore,omitempty"`
 	AwayScore *int `json:"awayScore,omitempty"`
 	HalfTimeHomeScore *int `json:"halfTimeHomeScore,omitempty"`
@@ -500,6 +501,9 @@ func buildJRS33MatchFromRow(row *xhtml.Node, baseURL, league, home, away, timeTe
 	id := jrs33StableMatchID(detailURL, league, home, away, timeText)
 	status, matchTime := parseJRS33RowStatus(row, timeText)
 	item := jrs33Match{ID:id, League:league, HomeTeam:home, AwayTeam:away, Kickoff:parseJRS33Kickoff(timeText), Status:status, MatchTime:matchTime, DetailURL:detailURL}
+	if status == "unknown" {
+		item.StatusEvidence = jrs33StatusEvidence(row, timeText)
+	}
 	channelSeen := make(map[string]bool)
 	for _, a := range findJRS33Elements(row, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "a" }) {
 		name := cleanJRS33Text(jrs33NodeText(a))
@@ -695,6 +699,32 @@ func parseJRS33RowStatus(row *xhtml.Node, timeText string) (string, string) {
 	return status, minute
 }
 
+// jrs33StatusEvidence preserves the actual status-related markup seen on the
+// source row. It is returned only for unknown states so a future parser fix can
+// be based on real JRS33 markup instead of adding speculative class names.
+func jrs33StatusEvidence(row *xhtml.Node, timeText string) string {
+	parts := []string{}
+	if value := cleanJRS33Text(timeText); value != "" { parts = append(parts, "time="+value) }
+	for _, n := range findJRS33Elements(row, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode }) {
+		class := strings.TrimSpace(jrs33Attr(n, "class"))
+		attrs := []string{}
+		for _, key := range []string{"data-status", "data-time", "data-minute", "data-period", "aria-label", "title"} {
+			if value := cleanJRS33Text(jrs33Attr(n, key)); value != "" { attrs = append(attrs, key+"="+value) }
+		}
+		if class == "" && len(attrs) == 0 { continue }
+		text := cleanJRS33Text(jrs33NodeText(n))
+		if len(text) > 100 { text = text[:100] }
+		part := n.Data
+		if class != "" { part += "."+class }
+		if text != "" { part += " text="+text }
+		if len(attrs) > 0 { part += " "+strings.Join(attrs, " ") }
+		parts = append(parts, part)
+	}
+	evidence := strings.Join(parts, " | ")
+	if len(evidence) > 1200 { evidence = evidence[:1200] }
+	return evidence
+}
+
 func jrs33RowStatusText(row *xhtml.Node, timeText string) string {
 	parts := []string{timeText, cleanJRS33Text(jrs33NodeText(row))}
 	for _, n := range findJRS33Elements(row, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode }) {
@@ -762,6 +792,7 @@ func marshalJRS33Matches(matches []jrs33Match) []map[string]any {
 		if m.HomeScore != nil { item["homeScore"] = *m.HomeScore }
 		if m.AwayScore != nil { item["awayScore"] = *m.AwayScore }
 		if m.MatchTime != "" { item["matchTime"] = m.MatchTime }
+		if m.StatusEvidence != "" { item["statusEvidence"] = m.StatusEvidence }
 		if m.HalfTimeHomeScore != nil { item["halfTimeHomeScore"] = *m.HalfTimeHomeScore }
 		if m.HalfTimeAwayScore != nil { item["halfTimeAwayScore"] = *m.HalfTimeAwayScore }
 		if m.CornerHome != nil { item["cornerHome"] = *m.CornerHome }
