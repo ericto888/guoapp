@@ -250,6 +250,12 @@ class _AppShellState extends State<AppShell> {
         ],
       ),
     );
+    final content = Column(
+      children: [
+        _FollowUpdateBanner(store: widget.store, onTap: () => _tap(AppTab.follow)),
+        Expanded(child: pages),
+      ],
+    );
     final television = AppScope.of(context).television;
     final covered = _navigator?.canPop() ?? false;
     return PopScope(
@@ -263,7 +269,7 @@ class _AppShellState extends State<AppShell> {
       },
       child: switch (AppScope.formFactorOf(context)) {
         FormFactor.phone => Scaffold(
-          body: pages,
+          body: content,
           bottomNavigationBar: covered
               ? null
               : NavigationBar(
@@ -280,7 +286,7 @@ class _AppShellState extends State<AppShell> {
                   ],
                 ),
         ),
-        FormFactor.pad || FormFactor.window => _wide(pages),
+        FormFactor.pad || FormFactor.window => _wide(content),
         FormFactor.television => Scaffold(
           body: SafeArea(
             child: Column(
@@ -316,7 +322,7 @@ class _AppShellState extends State<AppShell> {
                       child: _televisionHeader(),
                     ),
                   ),
-                Expanded(child: pages),
+                Expanded(child: content),
               ],
             ),
           ),
@@ -636,6 +642,78 @@ class _SideItem extends StatelessWidget {
       ),
     );
   }
+}
+
+
+class _FollowUpdateBanner extends StatelessWidget {
+  const _FollowUpdateBanner({required this.store, required this.onTap});
+
+  final LocalStore store;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: store,
+    builder: (context, _) {
+      var episodeTitles = 0;
+      var seasonNotices = 0;
+      for (final drama in store.favorites) {
+        final state = store.following(drama.id);
+        if (state == null) continue;
+        if (state.hasUpdates) episodeTitles++;
+        seasonNotices += state.seriesSeasons.values
+            .where((notice) => !notice.read)
+            .length;
+      }
+      if (episodeTitles == 0 && seasonNotices == 0) {
+        return const SizedBox.shrink();
+      }
+      final colors = Theme.of(context).colorScheme;
+      final parts = [
+        if (episodeTitles > 0) '$episodeTitles 部剧集有更新',
+        if (seasonNotices > 0) '$seasonNotices 部新季上线预告',
+      ];
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+        child: Material(
+          color: colors.primaryContainer,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.notifications_active_outlined,
+                    size: 19,
+                    color: colors.onPrimaryContainer,
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      '追剧有更新：${parts.join('，')}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colors.onPrimaryContainer,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: colors.onPrimaryContainer,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class _DownloadBadge extends StatelessWidget {
