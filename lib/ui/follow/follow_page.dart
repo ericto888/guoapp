@@ -26,10 +26,28 @@ typedef _View = ({
   Set<String>? selection,
 });
 
-/// 切换条去掉描边，只保留选中态的填充色。
-const _borderlessSegments = ButtonStyle(
-  side: WidgetStatePropertyAll(BorderSide.none),
-);
+/// 切换条去掉描边：选中用主题容器色，未选中用它的淡化版本，
+/// 颜色全部来自 colorScheme，随笔刷预设联动。
+ButtonStyle _segmentStyle(BuildContext context) {
+  final scheme = Theme.of(context).colorScheme;
+  final selectedFill = scheme.secondaryContainer;
+  final idleFill = Color.alphaBlend(
+    selectedFill.withValues(alpha: 0.45),
+    scheme.surface,
+  );
+  return ButtonStyle(
+    side: const WidgetStatePropertyAll(BorderSide.none),
+    backgroundColor: WidgetStateProperty.resolveWith<Color?>(
+      (states) =>
+          states.contains(WidgetState.selected) ? selectedFill : idleFill,
+    ),
+    foregroundColor: WidgetStateProperty.resolveWith<Color?>(
+      (states) => states.contains(WidgetState.selected)
+          ? scheme.onSecondaryContainer
+          : scheme.onSurfaceVariant,
+    ),
+  );
+}
 
 class FollowPage extends StatefulWidget {
   const FollowPage({
@@ -284,16 +302,37 @@ class _FollowPageState extends State<FollowPage> {
     ),
   );
 
-  Widget _sourceChip(String id, String label, _View view) => FocusRing(
-    radius: 8,
-    child: ChoiceChip(
-      key: ValueKey('follow-source-$id'),
-      label: Text(label),
-      showCheckmark: false,
-      selected: view.source == id,
-      onSelected: (_) => setState(() => _source = id),
-    ),
-  );
+  Widget _sourceChip(String id, String label, _View view) {
+    final scheme = Theme.of(context).colorScheme;
+    final selected = view.source == id;
+    return FocusRing(
+      radius: 12,
+      child: ChoiceChip(
+        key: ValueKey('follow-source-$id'),
+        label: Text(label),
+        showCheckmark: false,
+        selected: selected,
+        onSelected: (_) => setState(() => _source = id),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(10)),
+        ),
+        side: BorderSide(
+          color: selected
+              ? scheme.primary.withValues(alpha: 0.45)
+              : scheme.outlineVariant,
+        ),
+        backgroundColor: scheme.surface,
+        selectedColor: scheme.primaryContainer,
+        labelStyle: TextStyle(
+          fontSize: 14,
+          fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+          color: selected ? scheme.onPrimaryContainer : scheme.onSurface,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+  }
 
   Widget? _sources(_View view, {required double inset, bool scroll = false}) {
     if (view.sources.length < 2) return null;
@@ -554,7 +593,7 @@ class _FollowPageState extends State<FollowPage> {
               padding: EdgeInsets.fromLTRB(inset, 8, inset, 4),
               child: SegmentedButton<bool>(
                 showSelectedIcon: false,
-                style: _borderlessSegments,
+                style: _segmentStyle(context),
                 segments: [
                   ButtonSegment<bool>(
                     value: false,
@@ -956,7 +995,7 @@ class _SeasonReservationSwitcherState
           const SizedBox(height: 10),
           SegmentedButton<bool>(
             showSelectedIcon: false,
-            style: _borderlessSegments,
+            style: _segmentStyle(context),
             segments: [
               ButtonSegment<bool>(
                 value: false,
