@@ -25,6 +25,7 @@ class PlaybackHandle {
     bool preopen = true,
     PlaybackPlan? initialPlan,
     Future<PlaybackPlan> Function()? directResolver,
+    bool recordProgress = true,
   }) {
     final main = _respawnPlayer();
     final standby = preopen ? _respawnPlayer() : null;
@@ -40,6 +41,7 @@ class PlaybackHandle {
       onRetired: _retireVideo,
       initialPlan: initialPlan,
       directResolver: directResolver,
+      recordProgress: recordProgress,
       index: index,
       position: position,
       autoplay: autoplay,
