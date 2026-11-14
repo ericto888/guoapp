@@ -314,7 +314,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
             ),
             Expanded(
               child: Text(
-                '${_drama.title} · 第 ${_playback.episode.number} 集',
+                _drama.source == 'football'
+                    ? '${_drama.title} · ${_playback.episode.title}'
+                    : '${_drama.title} · 第 ${_playback.episode.number} 集',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -385,6 +387,9 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
   Widget _episodeList() => EpisodeGrid(
     episodes: _episodes,
     current: _playback.index,
+    labelBuilder: _drama.source == 'football'
+        ? (episode) => episode.title
+        : null,
     selecting: _selecting,
     selected: _selected,
     onSelectionChanged: () => setState(() {}),
