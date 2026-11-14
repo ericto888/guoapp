@@ -1,9 +1,6 @@
 package core
 
-import (
-	"context"
-	"errors"
-)
+import "context"
 
 // footballMatches exposes the independent football data contract and resolves
 // the current JRS33 entry point. Match parsing is intentionally kept separate
