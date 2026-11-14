@@ -48,3 +48,41 @@ func TestJRS33EmptyChannelResultCanBeRetried(t *testing.T) {
 		t.Fatalf("detail page requests = %d, want 2 so empty results can be retried", requests)
 	}
 }
+
+func TestParseJRS33PlayerMediaAndIframeURLs(t *testing.T) {
+	page := `<html><body>
+<video><source src="../live/index.m3u8?token=abc&amp;expires=123" type="application/x-mpegURL"></video>
+<script>var player = new Player({url: "https://cdn.example.net/backup/stream.m3u8?auth=xyz"});</script>
+</body></html>`
+	got := parseJRS33MediaURL(page, "https://play.example.net/watch/channel.html")
+	if got != "https://play.example.net/live/index.m3u8?token=abc&expires=123" {
+		t.Fatalf("media URL = %q, want first same-page HTTPS HLS resource", got)
+	}
+	if got := parseJRS33MediaURL(`<script>var url="http://cdn.example.net/live.m3u8";</script>`, "https://play.example.net/watch.html"); got != "" {
+		t.Fatalf("insecure HTTP media URL must not be returned: %q", got)
+	}
+}
+
+func TestParseJRS33PlayerIframeURLs(t *testing.T) {
+	html := `<iframe src="/embed/live.html"></iframe>
+<iframe src="http://insecure.example/live.html"></iframe>
+<iframe src="https://embed.example.net/player.html"></iframe>`
+	got := parseJRS33IframeURLs(html, "https://play.example.net/watch/index.html")
+	if len(got) != 2 {
+		t.Fatalf("iframe URLs=%v, want two HTTPS iframe URLs", got)
+	}
+	if got[0] != "https://play.example.net/embed/live.html" ||
+		got[1] != "https://embed.example.net/player.html" {
+		t.Fatalf("unexpected iframe URLs: %v", got)
+	}
+}
+
+func TestJRS33ResolveChannelRejectsNonHTTPSEntry(t *testing.T) {
+	provider := &jrs33Provider{}
+	if _, _, err := provider.resolveChannel(context.Background(), "http://play.example.net/live.html"); err == nil {
+		t.Fatal("non-HTTPS channel entry should be rejected")
+	}
+	if _, _, err := provider.resolveChannel(context.Background(), "https://127.0.0.1/live.m3u8"); err == nil {
+		t.Fatal("IP-literal channel entry should be rejected")
+	}
+}
