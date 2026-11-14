@@ -60,22 +60,14 @@ class _FootballHomePageState extends State<FootballHomePage> {
     );
   }
 
-  String _matchStatusLabel(String status) {
-    switch (status) {
-      case 'live':
-        return '直播中';
-      case 'halftime':
-        return '中场';
-      case 'finished':
-        return '已结束';
-      case 'postponed':
-        return '延期';
-      case 'cancelled':
-        return '已取消';
-      default:
-        return '未开始';
-    }
-  }
+  String _matchStatusLabel(String status) => switch (status) {
+    'live' => '直播中',
+    'halftime' => '中场',
+    'finished' => '已结束',
+    'postponed' => '延期',
+    'cancelled' => '已取消',
+    _ => '未开始',
+  };
 
   Widget _channelTile(BuildContext context, FootballLiveChannel channel) {
     return ListTile(
