@@ -75,7 +75,7 @@ class MinePage extends StatelessWidget {
 
   void _openFootball(BuildContext context) => openPage<void>(
     context,
-    (_) => const FootballHomePage(),
+    (_) => FootballHomePage(store: store),
   );
 
   Widget _footballEntry(BuildContext context) => _FootballEntry(
