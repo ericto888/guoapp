@@ -121,6 +121,9 @@ func (p *jrs33Provider) matchChannels(ctx context.Context, matchID string) ([]jr
 	if matchID == "" { return nil, errors.New("赛事编号不能为空") }
 	p.mu.Lock()
 	p.loadCacheLocked()
+	if p.detailChannels == nil {
+		p.detailChannels = make(map[string][]jrs33LiveChannel)
+	}
 	for _, match := range p.cached {
 		if match.ID != matchID { continue }
 		if len(match.Channels) > 0 {
