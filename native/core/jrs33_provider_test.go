@@ -1,19 +1,11 @@
 package core
 
 import (
-	"context"
-	"encoding/base64"
-	"io"
 	"errors"
-	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
-
-	stdhtml "html"
-
-	xhtml "golang.org/x/net/html"
 )
 
 
