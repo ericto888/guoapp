@@ -16,6 +16,7 @@ class FootballHomePage extends StatefulWidget {
 class _FootballHomePageState extends State<FootballHomePage> {
   late Future<List<FootballMatch>> _matches;
   var _loaded = false;
+  final Map<String, Future<List<FootballLiveChannel>>> _channelLoads = {};
 
   @override
   void didChangeDependencies() {
@@ -33,6 +34,34 @@ class _FootballHomePageState extends State<FootballHomePage> {
     final next = _load(force: true);
     setState(() => _matches = next);
     await next;
+  }
+
+  void _loadChannels(String matchId) {
+    if (_channelLoads.containsKey(matchId)) return;
+    setState(() {
+      _channelLoads[matchId] = AppScope.of(context).repository.footballMatchChannels(matchId);
+    });
+  }
+
+  Widget _channelTile(BuildContext context, FootballLiveChannel channel) {
+    return ListTile(
+      dense: true,
+      leading: const Icon(Icons.play_circle_outline),
+      title: Text(channel.name),
+      subtitle: const Text('打开第三方直播入口'),
+      onTap: () async {
+        final uri = Uri.tryParse(channel.url);
+        if (uri == null || !uri.isScheme('https') || !await canLaunchUrl(uri)) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('直播入口暂时无法打开')),
+            );
+          }
+          return;
+        }
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      },
+    );
   }
 
   @override
@@ -138,34 +167,51 @@ class _FootballHomePageState extends State<FootballHomePage> {
                           textAlign: TextAlign.center,
                           style: theme.textTheme.bodySmall,
                         ),
-                        if (match.channels.isNotEmpty) ...[
+                        if (match.detailUrl.isNotEmpty || match.channels.isNotEmpty) ...[
                           const SizedBox(height: 8),
                           ExpansionTile(
                             tilePadding: EdgeInsets.zero,
                             dense: true,
-                            title: Text('直播频道（${match.channels.length}）'),
+                            title: Text(
+                              match.channels.isNotEmpty
+                                  ? '直播频道（${match.channels.length}）'
+                                  : '查看直播频道',
+                            ),
+                            onExpansionChanged: (expanded) {
+                              if (expanded && match.channels.isEmpty) {
+                                _loadChannels(match.id);
+                              }
+                            },
                             children: [
-                              for (final channel in match.channels)
-                                ListTile(
-                                  dense: true,
-                                  leading: const Icon(Icons.play_circle_outline),
-                                  title: Text(channel.name),
-                                  subtitle: const Text('打开第三方直播入口'),
-                                  onTap: () async {
-                                    final uri = Uri.tryParse(channel.url);
-                                    if (uri == null ||
-                                        !uri.isScheme('https') ||
-                                        !await canLaunchUrl(uri)) {
-                                      if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('直播入口暂时无法打开')),
-                                        );
-                                      }
-                                      return;
+                              if (match.channels.isNotEmpty)
+                                for (final channel in match.channels)
+                                  _channelTile(context, channel)
+                              else
+                                FutureBuilder<List<FootballLiveChannel>>(
+                                  future: _channelLoads[match.id],
+                                  builder: (context, channelSnapshot) {
+                                    if (channelSnapshot.connectionState == ConnectionState.waiting) {
+                                      return const Padding(
+                                        padding: EdgeInsets.all(16),
+                                        child: Center(child: CircularProgressIndicator()),
+                                      );
                                     }
-                                    await launchUrl(
-                                      uri,
-                                      mode: LaunchMode.externalApplication,
+                                    if (channelSnapshot.hasError) {
+                                      return TextButton.icon(
+                                        onPressed: () => _loadChannels(match.id),
+                                        icon: const Icon(Icons.refresh),
+                                        label: const Text('频道加载失败，点击重试'),
+                                      );
+                                    }
+                                    final channels = channelSnapshot.data ?? const <FootballLiveChannel>[];
+                                    if (channels.isEmpty) {
+                                      return const Padding(
+                                        padding: EdgeInsets.all(12),
+                                        child: Text('该场赛事暂未提供直播频道'),
+                                      );
+                                    }
+                                    return Column(
+                                      children: [for (final channel in channels) _channelTile(context, channel)],
                                     );
                                   },
                                 ),
