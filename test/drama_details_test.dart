@@ -118,7 +118,12 @@ void main() {
     // 切到第二季后重新请求，能把第 1 季补回来。
     repository.seasonLists[second.id] = [
       season(firstSeason, 1),
-      season(second, 2),
+      DramaSeason(
+        number: 2,
+        title: second.title,
+        drama: second,
+        episodes: 9,
+      ),
       season(third, 3),
     ];
 
@@ -131,6 +136,11 @@ void main() {
 
     expect(repository.seasonRequests, [first.id, second.id]);
     expect(details.seasons.map((item) => item.number), [1, 2, 3]);
+    expect(
+      details.seasons[1].episodes,
+      9,
+      reason: '同一季刷新后应采用最新官方集数，不能保留待上线时的旧数据',
+    );
   });
 
   test('季列表加载完成（即使只有一季）才标记 seasonsReady', () async {
