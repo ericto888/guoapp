@@ -32,7 +32,9 @@ jobs:
           cache: true
       - run: flutter pub get
       - name: Show formatted football source for formatter diagnosis
-        run: dart format --output=show lib/ui/football/football_home_page.dart
+        run: |
+          dart format --output=show lib/ui/football/football_home_page.dart
+          dart format --output=show lib/ui/player/landscape_player_page.dart
       - name: Check Dart formatting
         run: dart format --output=none --set-exit-if-changed lib/core_bridge.dart lib/football_models.dart lib/playback_session.dart lib/ui/football lib/ui/player/playback_handle.dart lib/ui/player/player_page.dart lib/ui/player/landscape_player_page.dart lib/ui/player/portrait_player_page.dart lib/ui/mine/mine_page.dart lib/ui/explore/explore_page.dart
       - name: Analyze football integration
