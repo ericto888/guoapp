@@ -771,7 +771,9 @@ class _SeasonReservationSwitcherState
     final date = DateTime.tryParse(season.onlineDate);
     if (season.upcoming) {
       if (date == null) return '预计上线：待定';
-      return '预计上线：${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      final dateText =
+          '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      return '预计 $dateText';
     }
     if (date == null) {
       return season.episodes > 0 ? '已上线 · 共 ${season.episodes} 集' : '已上线';
@@ -876,6 +878,11 @@ class _SeasonReservationSwitcherState
                       onTap: () => widget.onOpen(season.drama),
                       onMore: () async {
                         await widget.store.toggleSeasonReservation(reservation);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('已取消季预约')),
+                          );
+                        }
                       },
                     );
                   },
