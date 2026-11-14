@@ -464,6 +464,24 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 							}
 						}
 					}
+					for _, asset := range []string{
+						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/js/page.live-2.1-min.js?ver=20191015.1",
+						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/u.js?ver=23",
+						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/mm.js?ver=26",
+					} {
+						assetBody, _, assetErr := provider.getTextWithHostPolicy(ctx, asset, finalURL, jrs33IndexScriptHost)
+						if assetErr != nil { t.Logf("ASSET_ERROR %s %v", asset, assetErr); continue }
+						t.Logf("ASSET %s bytes=%d", asset, len(assetBody))
+						lower := strings.ToLower(assetBody)
+						for _, token := range []string{"openrandomurl1", "lab_vs", "sub_status", "data-lid", "getjson", "ajax", "urlid", "providerid", "score", "status"} {
+							pos := strings.Index(lower, token)
+							if pos >= 0 {
+								start, finish := pos-350, pos+1800
+								if start < 0 { start = 0 }; if finish > len(assetBody) { finish = len(assetBody) }
+								t.Logf("ASSET_%s %s", token, assetBody[start:finish])
+							}
+						}
+					}
 					for _, host := range []string{"play.sportsteam368.com", "play.jgdhds.com", "play.sportsteam7777.com"} {
 						for _, scheme := range []string{"https", "http"} {
 							probeURL := scheme + "://" + host + "/play/steam826545.html"
