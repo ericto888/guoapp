@@ -311,8 +311,13 @@ func (engine *nativeEngine) hongguoOfficialSeasons(
 	current nativeDrama,
 ) (nativeSeasonResult, bool) {
 	seasons, ok := engine.downloader.hongguoPlanSeasons(ctx, sourceID)
-	if !ok || len(seasons) == 0 {
+	if !ok {
 		return nativeSeasonResult{}, false
+	}
+	if len(seasons) == 0 {
+		// 请求成功但官方没有返回包含当前 book_id 的系列分组。
+		// 这是权威的“无官方系列”结果，不再用同名搜索猜测关联关系。
+		return nativeSeasonResult{}, true
 	}
 	// hongguoPlanSeasons 已经按当前 book_id 选中了 show_type=547 的
 	// 官方分组。这里不能再按标题 base 过滤：同一作者的季标题可能带额外
