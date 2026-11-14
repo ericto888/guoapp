@@ -935,9 +935,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
               const SizedBox(width: 8),
               _icon(
                 Icons.skip_previous_rounded,
-                session.detail.drama.source == 'football'
-                    ? '上一线路'
-                    : '上一集',
+                session.detail.drama.source == 'football' ? '上一线路' : '上一集',
                 session.hasPrevious
                     ? () => unawaited(session.previous())
                     : null,
@@ -945,9 +943,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
               ),
               _icon(
                 Icons.skip_next_rounded,
-                session.detail.drama.source == 'football'
-                    ? '下一线路'
-                    : '下一集',
+                session.detail.drama.source == 'football' ? '下一线路' : '下一集',
                 session.hasNext ? () => unawaited(session.next()) : null,
                 iconSize: 28,
               ),
