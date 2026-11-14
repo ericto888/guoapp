@@ -36,8 +36,8 @@ class _FootballHomePageState extends State<FootballHomePage> {
     await next;
   }
 
-  void _loadChannels(String matchId) {
-    if (_channelLoads.containsKey(matchId)) return;
+  void _loadChannels(String matchId, {bool retry = false}) {
+    if (!retry && _channelLoads.containsKey(matchId)) return;
     setState(() {
       _channelLoads[matchId] = AppScope.of(context).repository.footballMatchChannels(matchId);
     });
@@ -198,16 +198,17 @@ class _FootballHomePageState extends State<FootballHomePage> {
                                     }
                                     if (channelSnapshot.hasError) {
                                       return TextButton.icon(
-                                        onPressed: () => _loadChannels(match.id),
+                                        onPressed: () => _loadChannels(match.id, retry: true),
                                         icon: const Icon(Icons.refresh),
                                         label: const Text('频道加载失败，点击重试'),
                                       );
                                     }
                                     final channels = channelSnapshot.data ?? const <FootballLiveChannel>[];
                                     if (channels.isEmpty) {
-                                      return const Padding(
-                                        padding: EdgeInsets.all(12),
-                                        child: Text('该场赛事暂未提供直播频道'),
+                                      return TextButton.icon(
+                                        onPressed: () => _loadChannels(match.id, retry: true),
+                                        icon: const Icon(Icons.refresh),
+                                        label: const Text('暂未发现直播频道，重新加载'),
                                       );
                                     }
                                     return Column(
