@@ -414,6 +414,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     (_) => _EpisodeSheet(
       session: _session,
       canDownload:
+          _session.detail.drama.source != 'football' &&
           AppScope.of(context).repository.supportsDownloads &&
           widget.store.canDownload,
       onDownload: (indexes) => unawaited(
