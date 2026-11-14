@@ -619,7 +619,12 @@ func buildJRS33MatchFromRow(row *xhtml.Node, baseURL, league, home, away, timeTe
 			return n.Type == xhtml.ElementNode && hasJRS33Class(n, "bf")
 		})
 		if len(badges) == 0 { return nil }
-		value, err := strconv.Atoi(jrs33Attr(badges[0], "title"))
+		// .bf title="2" is a source-side placeholder/tooltip in the current
+		// JRKAN markup, not a trustworthy score. Only accept an actual visible
+		// numeric value inside the team score element; never turn title metadata
+		// into a fabricated 2:2 scoreline.
+		rawScore := cleanJRS33Text(jrs33NodeText(badges[0]))
+		value, err := strconv.Atoi(rawScore)
 		if err != nil || value < 0 || value > 99 { return nil }
 		return &value
 	}
