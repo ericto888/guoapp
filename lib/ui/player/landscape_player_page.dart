@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -1333,7 +1332,9 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
               children: [
                 Text(
                   isEpisodes
-                      ? session.detail.drama.source == 'football' ? '切换线路' : '选集'
+                      ? session.detail.drama.source == 'football'
+                            ? '切换线路'
+                            : '选集'
                       : isSettings
                       ? '播放设置'
                       : '',
