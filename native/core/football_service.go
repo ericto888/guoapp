@@ -30,7 +30,11 @@ func (engine *nativeEngine) footballMatches(ctx context.Context, force bool) (an
 		"source": "jrs33", "updatedAt": time.Now(),
 	}
 	if domainErr == nil {
-		result["baseUrl"] = resolved.BaseURL
+		activeBaseURL := engine.jrs33Provider.currentBaseURL()
+		if activeBaseURL == "" {
+			activeBaseURL = resolved.BaseURL
+		}
+		result["baseUrl"] = activeBaseURL
 		result["domainStale"] = resolved.Stale
 		result["verifiedAt"] = resolved.VerifiedAt
 	}
