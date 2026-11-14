@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strconv"
 	"testing"
 )
 
@@ -10,6 +11,7 @@ func TestParseHongguoPlanSeasonsOfficialSeries(t *testing.T) {
 	result := map[string]any{
 		"data": []any{
 			map[string]any{
+				"show_type": 547,
 				"has_more": "0",
 				"book_data": []any{
 					map[string]any{"book_name": "持械入宋", "author": "茶根儿"},
@@ -73,6 +75,7 @@ func TestParseHongguoPlanSeasonsDropsDisabledPaidSeasons(t *testing.T) {
 	result := map[string]any{
 		"data": []any{
 			map[string]any{
+				"show_type": 547,
 				"video_data": []any{
 					map[string]any{"series_id": "1", "title": "第1季", "season_index": 1, "episode_cnt": 10},
 					map[string]any{"series_id": "2", "title": "第2季", "season_index": 2, "episode_cnt": 10, "disable_play": true},
@@ -89,6 +92,87 @@ func TestParseHongguoPlanSeasonsDropsDisabledPaidSeasons(t *testing.T) {
 		// 待上线季（无集数）即使 disable_play 也保留，客户端显示「待上线」。
 		t.Fatalf("upcoming season must be kept: %+v", seasons[1])
 	}
+}
+
+
+func TestParseHongguoPlanSeasonsKeepsSameTitleAuthorGroupsSeparate(t *testing.T) {
+	makeGroup := func(ids []string, prefix string) map[string]any {
+		rows := make([]any, 0, len(ids))
+		for i, id := range ids {
+			title := prefix + "第" + strconv.Itoa(i+1) + "季"
+			if i == 2 && prefix == "家有五女，穿越来的他连夜搞事业" {
+				title = prefix + "啦第三季"
+			}
+			rows = append(rows, map[string]any{
+				"series_id": id, "title": title, "season_index": i + 1,
+				"episode_cnt": 100, "content_type": 1004,
+			})
+		}
+		return map[string]any{"show_type": 547, "video_data": rows, "has_more": "0"}
+	}
+	seriesA := []string{
+		"7663898166743288857", "7678922471990365209", "7685376296183942169",
+		"7687930564317285400", "7690118443189668888", "7693861768585563161",
+		"7699043022280870974", "7704335278520929305", "7706065043124669464",
+	}
+	seriesB := []string{
+		"7688646466708966462", "7701588705932217406", "7704525568368200728",
+	}
+	result := map[string]any{"data": []any{
+		map[string]any{"show_type": 1004, "video_data": []any{
+			map[string]any{"series_id": "9999999999999999999", "title": "同名干扰项第一季", "season_index": 1},
+		}},
+		makeGroup(seriesA, "家有五女，穿越来的他连夜搞事业"),
+		makeGroup(seriesB, "家有五女，穿越来的他连夜搞事业啦"),
+	}}
+	for _, tc := range []struct {
+		name string
+		id   string
+		want int
+	}{
+		{name: "作者A从第一季进入", id: seriesA[0], want: 9},
+		{name: "作者A从第三季进入", id: seriesA[2], want: 9},
+		{name: "作者B从第二季进入", id: seriesB[1], want: 3},
+		{name: "作者B从第三季进入", id: seriesB[2], want: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			seasons, hasMore, _ := parseHongguoPlanSeasons(result, tc.id)
+			if hasMore {
+				t.Fatal("unexpected pagination")
+			}
+			if len(seasons) != tc.want {
+				t.Fatalf("got %d seasons, want %d: %+v", len(seasons), tc.want, seasons)
+			}
+			for _, season := range seasons {
+				if tc.want == 9 && containsString(seriesB, season.SeriesID) {
+					t.Fatalf("author B season leaked into author A group: %+v", season)
+				}
+				if tc.want == 3 && containsString(seriesA, season.SeriesID) {
+					t.Fatalf("author A season leaked into author B group: %+v", season)
+				}
+			}
+		})
+	}
+}
+
+func TestParseHongguoPlanSeasonsRejectsNonSeriesCell(t *testing.T) {
+	result := map[string]any{"data": []any{
+		map[string]any{"show_type": 1004, "video_data": []any{
+			map[string]any{"series_id": "123456789", "title": "测试第一季", "season_index": 1},
+		}},
+	}}
+	if seasons, _, _ := parseHongguoPlanSeasons(result, "123456789"); len(seasons) != 0 {
+		t.Fatalf("non-series cell must be ignored: %+v", seasons)
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestHongguoPlanSeasonsRejectsInvalidID(t *testing.T) {
