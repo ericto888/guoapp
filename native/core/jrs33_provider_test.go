@@ -192,3 +192,21 @@ func TestJRS33UnknownStatusIsNotScheduled(t *testing.T) {
 	if got := parseJRS33Status("第 23 分钟"); got != "live" { t.Fatalf("minute status mapped to %q", got) }
 	if got := parseJRS33MatchTime("下半场 23′"); got != "23′" { t.Fatalf("match time=%q", got) }
 }
+
+func TestJRS33CompactTimeStatus(t *testing.T) {
+	cases := []struct{ input, status, minute string }{
+		{"11-14 14:00 未", "scheduled", ""},
+		{"11-14 14:00 半", "halftime", ""},
+		{"11-14 14:00 完", "finished", ""},
+		{"11-14 14:00 65", "live", "65′"},
+		{"11-14 14:00 65′", "live", "65′"},
+	}
+	for _, tc := range cases {
+		if got := parseJRS33Status(tc.input); got != tc.status {
+			t.Errorf("parseJRS33Status(%q)=%q, want %q", tc.input, got, tc.status)
+		}
+		if got := parseJRS33MatchTime(tc.input); got != tc.minute {
+			t.Errorf("parseJRS33MatchTime(%q)=%q, want %q", tc.input, got, tc.minute)
+		}
+	}
+}
