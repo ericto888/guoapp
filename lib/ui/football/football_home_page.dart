@@ -92,30 +92,43 @@ class _FootballHomePageState extends State<FootballHomePage> {
 
   Future<void> _playChannel(
     BuildContext context,
-    FootballLiveChannel channel,
+    FootballMatch match,
+    List<FootballLiveChannel> channels,
+    int initialIndex,
   ) async {
+    if (channels.isEmpty || initialIndex < 0 || initialIndex >= channels.length) {
+      return;
+    }
     final repository = AppScope.of(context).repository;
     try {
-      final plan = await repository.footballResolveChannel(channel.url);
+      final plan = await repository.footballResolveChannel(
+        channels[initialIndex].url,
+      );
       if (!context.mounted) return;
       final drama = Drama(
-        id: 'football:${channel.url}',
+        id: 'football:${match.id}',
         source: 'football',
-        title: channel.name,
-        episodes: 1,
+        title: '${match.homeTeam} vs ${match.awayTeam}',
+        episodes: channels.length,
         category: '足球直播',
       );
       final detail = DramaDetail(drama, [
-        Episode({'id': channel.url, 'title': channel.name}, 1),
+        for (var i = 0; i < channels.length; i++)
+          Episode({
+            'id': channels[i].url,
+            'title': channels[i].name,
+            'currentEpisode': i + 1,
+          }, i + 1),
       ]);
       final handle = PlaybackHandle(
         repository: repository,
         store: widget.store,
         detail: detail,
-        index: 0,
+        index: initialIndex,
         preopen: false,
         initialPlan: plan,
-        directResolver: () => repository.footballResolveChannel(channel.url),
+        directResolver: (index) =>
+            repository.footballResolveChannel(channels[index].url),
         recordProgress: false,
       );
       await Navigator.of(context).push(
@@ -132,13 +145,19 @@ class _FootballHomePageState extends State<FootballHomePage> {
     }
   }
 
-  Widget _channelTile(BuildContext context, FootballLiveChannel channel) {
+  Widget _channelTile(
+    BuildContext context,
+    FootballMatch match,
+    List<FootballLiveChannel> channels,
+    int index,
+  ) {
+    final channel = channels[index];
     return ListTile(
       dense: true,
       leading: const Icon(Icons.play_circle_outline),
       title: Text(channel.name),
-      subtitle: const Text('使用 GuoApp 内置播放器'),
-      onTap: () => _playChannel(context, channel),
+      subtitle: Text(index == 0 ? '默认线路 · GuoApp 内置播放器' : 'GuoApp 内置播放器'),
+      onTap: () => _playChannel(context, match, channels, index),
     );
   }
 
@@ -410,8 +429,8 @@ class _FootballHomePageState extends State<FootballHomePage> {
                             },
                             children: [
                               if (match.channels.isNotEmpty)
-                                for (final channel in match.channels)
-                                  _channelTile(context, channel)
+                                for (var i = 0; i < match.channels.length; i++)
+                                  _channelTile(context, match, match.channels, i)
                               else
                                 FutureBuilder<List<FootballLiveChannel>>(
                                   future: _channelLoads[match.id],
@@ -450,8 +469,8 @@ class _FootballHomePageState extends State<FootballHomePage> {
                                     }
                                     return Column(
                                       children: [
-                                        for (final channel in channels)
-                                          _channelTile(context, channel),
+                                        for (var i = 0; i < channels.length; i++)
+                                          _channelTile(context, match, channels, i),
                                       ],
                                     );
                                   },
