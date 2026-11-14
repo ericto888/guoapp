@@ -181,6 +181,7 @@ abstract class AppRepository {
   }) async => throw AppFailure('当前版本不支持登录青空次元');
   Future<SoraniAccount> soraniLogout() async => const SoraniAccount();
   Future<List<FootballMatch>> footballMatches({bool force = false}) async => const [];
+  Future<List<FootballLiveChannel>> footballMatchChannels(String matchId) async => const [];
   Future<void> initialize();
   Future<CatalogPage> catalog(
     String source, {
@@ -709,6 +710,18 @@ class NativeRepository extends AppRepository {
     return [
       for (final row in result['items'] as List? ?? const [])
         FootballMatch.fromJson(Map<String, dynamic>.from(row as Map)),
+    ];
+  }
+
+  @override
+  Future<List<FootballLiveChannel>> footballMatchChannels(String matchId) async {
+    final result = await _read('football-channels-$matchId', {
+      'action': 'footballMatchChannels',
+      'matchId': matchId,
+    });
+    return [
+      for (final row in result['items'] as List? ?? const [])
+        FootballLiveChannel.fromJson(Map<String, dynamic>.from(row as Map)),
     ];
   }
 
