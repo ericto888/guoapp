@@ -249,7 +249,8 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
         ),
       ),
     );
-    final panel = _roomy && (!_wide || _selecting);
+    final panel =
+        _roomy && (!_wide || _selecting || _drama.source == 'football');
     return PopScope(
       canPop: !_fullscreen && !_selecting && !_wide,
       onPopInvokedWithResult: (didPop, _) {
