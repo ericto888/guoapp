@@ -392,6 +392,15 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 				if parseErr == nil {
 					rows := findJRS33Elements(doc, func(n *xhtml.Node) bool { return hasJRS33Class(n, "d-touch") })
 					t.Logf("RAW_HOME final=%q bytes=%d rows=%d expanded=%v", finalURL, len(home), len(rows), expandErr == nil)
+					for _, token := range []string{"ch_base_url", "base_zqlq_url", "status_interval_time", "data-config", "config"} {
+						pos := strings.Index(strings.ToLower(rawHome), strings.ToLower(token))
+						if pos >= 0 {
+							start, finish := pos-500, pos+1800
+							if start < 0 { start = 0 }
+							if finish > len(rawHome) { finish = len(rawHome) }
+							t.Logf("SOURCE_CONFIG_%s %s", token, rawHome[start:finish])
+						}
+					}
 					vsClasses := make(map[string]int)
 					for _, row := range rows {
 						vs := findJRS33Elements(row, func(n *xhtml.Node) bool { return hasJRS33Class(n, "lab_vs") })
