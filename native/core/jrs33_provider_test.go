@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/url"
@@ -344,6 +345,22 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 						var markup strings.Builder
 						_ = xhtml.Render(&markup, row)
 						t.Logf("RAW_ROW[%d] %s", i, markup.String())
+					}
+					for _, hostMatch := range jrs33PlayHostRE.FindAllStringSubmatch(rawHome, -1) {
+						if len(hostMatch) > 2 {
+							decoded, decodeErr := base64.StdEncoding.DecodeString(hostMatch[2])
+							t.Logf("PLAY_HOST key=%q decoded=%q err=%v", hostMatch[1], strings.TrimSpace(string(decoded)), decodeErr)
+						}
+					}
+					t.Logf("PLAY_PATH pattern=%q", jrs33PlayPathRE.FindStringSubmatch(rawHome))
+					for _, token := range []string{"function getPlayUrl", "getPlayUrl =", "function openRandomUrl1", "function getPlay"} {
+						pos := strings.Index(rawHome, token)
+						if pos >= 0 {
+							start, finish := pos-300, pos+1800
+							if start < 0 { start = 0 }
+							if finish > len(rawHome) { finish = len(rawHome) }
+							t.Logf("HOME_%s %s", token, rawHome[start:finish])
+						}
 					}
 					if scriptRef := jrs33IndexScriptRE.FindStringSubmatch(rawHome); len(scriptRef) > 1 {
 						baseURL, _ := url.Parse(finalURL)
