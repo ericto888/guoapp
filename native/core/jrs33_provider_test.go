@@ -62,6 +62,59 @@ func TestParseJRS33Home(t *testing.T) {
 	}
 }
 
+func TestParseJRS33MediaURL(t *testing.T) {
+	tests := []struct {
+		name string
+		source string
+		base string
+		want string
+	}{
+		{
+			name: "video source tag",
+			source: "<video><source src=\"https://cdn.example.com/live/index.m3u8?token=abc\"></video>",
+			base: "https://play.example.com/watch/1.html",
+			want: "https://cdn.example.com/live/index.m3u8?token=abc",
+		},
+		{
+			name: "escaped player config",
+			source: "var player = { url: \"https:\\\\/\\\\/cdn.example.com\\\\/live\\\\/index.m3u8\" };",
+			base: "https://play.example.com/watch/1.html",
+			want: "https://cdn.example.com/live/index.m3u8",
+		},
+		{
+			name: "relative media path",
+			source: "<video src=\"/media/live.mp4\"></video>",
+			base: "https://play.example.com/watch/1.html",
+			want: "https://play.example.com/media/live.mp4",
+		},
+		{
+			name: "reject insecure stream",
+			source: "<video src=\"http://cdn.example.com/live.m3u8\"></video>",
+			base: "https://play.example.com/watch/1.html",
+			want: "",
+		},
+		{
+			name: "reject page URL",
+			source: "<iframe src=\"https://player.example.com/watch.html\"></iframe>",
+			base: "https://play.example.com/watch/1.html",
+			want: "",
+		},
+		{
+			name: "reject IP literal",
+			source: "<video src=\"https://127.0.0.1/live.m3u8\"></video>",
+			base: "https://play.example.com/watch/1.html",
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parseJRS33MediaURL(tt.source, tt.base); got != tt.want {
+				t.Fatalf("parseJRS33MediaURL() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseJRS33Channels(t *testing.T) {
 	html := `<div class="sub_playlist">
 <a data-play="/play/match_1.html"><strong>线路一</strong></a>
