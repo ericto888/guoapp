@@ -13,6 +13,7 @@ import '../app_scope.dart';
 import '../explore/explore_page.dart';
 import '../explore/source_actions.dart';
 import '../follow/follow_page.dart';
+import '../football/football_home_page.dart';
 import '../mine/mine_page.dart';
 import '../update_prompt.dart';
 import '../widgets/bar_button.dart';
@@ -24,7 +25,8 @@ import '../widgets/source_bar.dart';
 enum AppTab {
   explore('发现', Icons.explore_outlined, Icons.explore),
   follow('追剧', Icons.bookmark_border_rounded, Icons.bookmark_rounded),
-  mine('我的', Icons.person_outline_rounded, Icons.person_rounded);
+  mine('我的', Icons.person_outline_rounded, Icons.person_rounded),
+  football('足球', Icons.sports_soccer_outlined, Icons.sports_soccer);
 
   const AppTab(this.label, this.icon, this.selectedIcon);
   final String label;
@@ -206,6 +208,7 @@ class _AppShellState extends State<AppShell> {
       entryFocus: _followEntry,
       onExitUp: _tabFocus[AppTab.follow.index].requestFocus,
     ),
+    AppTab.football => const FootballHomePage(),
     AppTab.mine => MinePage(
       store: widget.store,
       downloads: _downloads!,
@@ -303,7 +306,7 @@ class _AppShellState extends State<AppShell> {
                         final entry = switch (_tab) {
                           AppTab.follow => _followEntry,
                           AppTab.mine => _mineEntry,
-                          AppTab.explore => null,
+                          AppTab.explore || AppTab.football => null,
                         };
                         if (event is KeyUpEvent ||
                             event.logicalKey != LogicalKeyboardKey.arrowDown ||

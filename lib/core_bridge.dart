@@ -21,6 +21,7 @@ import 'resource_settings.dart';
 import 'diary_service.dart';
 import 'app_update.dart';
 import 'sorani_account.dart';
+import 'football_models.dart';
 
 typedef _NativeRequest = Pointer<Utf8> Function(Pointer<Utf8>);
 typedef _DartRequest = Pointer<Utf8> Function(Pointer<Utf8>);
@@ -179,6 +180,7 @@ abstract class AppRepository {
     required SoraniCaptchaTrack track,
   }) async => throw AppFailure('当前版本不支持登录青空次元');
   Future<SoraniAccount> soraniLogout() async => const SoraniAccount();
+  Future<List<FootballMatch>> footballMatches({bool force = false}) async => const [];
   Future<void> initialize();
   Future<CatalogPage> catalog(
     String source, {
@@ -692,6 +694,18 @@ class NativeRepository extends AppRepository {
     } catch (_) {
       throw AppFailure('本地核心加载失败，请使用完整安装包重新安装');
     }
+  }
+
+  @override
+  Future<List<FootballMatch>> footballMatches({bool force = false}) async {
+    final result = await _read('football-matches', {
+      'action': 'footballMatches',
+      'force': force,
+    });
+    return [
+      for (final row in result['items'] as List? ?? const [])
+        FootballMatch.fromJson(Map<String, dynamic>.from(row as Map)),
+    ];
   }
 
   @override
