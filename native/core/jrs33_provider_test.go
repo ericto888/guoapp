@@ -384,6 +384,25 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 						_ = xhtml.Render(&markup, row)
 						t.Logf("RAW_ROW[%d] %s", i, markup.String())
 					}
+					for _, asset := range []string{
+						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/mm.js?ver=26",
+						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/u.js?ver=23",
+						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/js/page.live-2.1-min.js?ver=20191015.1",
+					} {
+						assetBody, _, assetErr := provider.getTextFromIndexScript(ctx, asset, finalURL)
+						if assetErr != nil { t.Logf("SOURCE_ASSET %s ERROR %v", asset, assetErr); continue }
+						t.Logf("SOURCE_ASSET %s bytes=%d", asset, len(assetBody))
+						lower := strings.ToLower(assetBody)
+						for _, token := range []string{"lab_vs", "data-lid", "lab_bc", "lab_jq", "sub_status", "ajax", "getjson", "setinterval", "xmlhttprequest", "score"} {
+							pos := strings.Index(lower, token)
+							if pos >= 0 {
+								start, finish := pos-400, pos+1800
+								if start < 0 { start = 0 }
+								if finish > len(assetBody) { finish = len(assetBody) }
+								t.Logf("ASSET_%s %s", token, assetBody[start:finish])
+							}
+						}
+					}
 					for _, hostMatch := range jrs33PlayHostRE.FindAllStringSubmatch(rawHome, -1) {
 						if len(hostMatch) > 2 {
 							decoded, decodeErr := base64.StdEncoding.DecodeString(hostMatch[2])
