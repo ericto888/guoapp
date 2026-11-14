@@ -490,6 +490,8 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 					}
 					for _, asset := range []string{
 						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/js/page.live-2.1-min.js?ver=20191015.1",
+						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/js/hwl.base-min.js?ver=20191015.3",
+						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/index.js?t_5",
 						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/u.js?ver=23",
 						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/mm.js?ver=26",
 					} {
