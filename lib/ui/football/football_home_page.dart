@@ -105,10 +105,9 @@ class _FootballHomePageState extends State<FootballHomePage> {
         episodes: 1,
         category: '足球直播',
       );
-      final detail = DramaDetail(
-        drama,
-        [Episode({'id': channel.url, 'title': channel.name}, 1)],
-      );
+      final detail = DramaDetail(drama, [
+        Episode({'id': channel.url, 'title': channel.name}, 1),
+      ]);
       final handle = PlaybackHandle(
         repository: repository,
         store: widget.store,
@@ -126,9 +125,9 @@ class _FootballHomePageState extends State<FootballHomePage> {
       );
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('直播解析或播放失败：$error')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('直播解析或播放失败：$error')));
       }
     }
   }
