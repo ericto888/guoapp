@@ -154,41 +154,38 @@ func (p *jrs33Provider) resolveChannel(ctx context.Context, rawURL string) (stri
 }
 
 // resolveJRS33MediaPage follows at most two levels of public HTTPS player iframes.
-// Every page is fetched with a same-host redirect policy and private-address
-// protection; each cross-host iframe is independently validated before fetching.
-// resolveJRS33MediaPage follows at most two levels of public HTTPS player iframes.
- // Every page is fetched with a same-host redirect policy; each hostname is
- // independently checked to resolve only to public IP addresses.
- func validateJRS33PublicHost(ctx context.Context, host string) error {
- 	host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
- 	if host == "" || net.ParseIP(host) != nil {
- 		return errors.New("直播播放器主机无效，已拒绝请求")
- 	}
- 	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
- 	if err != nil || len(ips) == 0 {
- 		return errors.New("直播频道域名暂时无法解析")
- 	}
- 	for _, entry := range ips {
- 		ip := entry.IP
- 		if ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
- 			return errors.New("直播频道解析到非公网地址，已拒绝请求")
- 		}
- 	}
- 	return nil
- }
- 
- func (p *jrs33Provider) resolveJRS33MediaPage(ctx context.Context, rawURL string, depth int, visited map[string]bool) (string, string, error) {
- 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
- 	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Port() != "" {
- 		return "", "", errors.New("直播播放器页面地址无效，已拒绝请求")
- 	}
- 	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
- 	if err := validateJRS33PublicHost(ctx, host); err != nil {
- 		return "", "", err
- 	}
- 	key := parsed.String()
- 	if visited[key] { return "", "", nil }
- 	visited[key] = true
+// Every page is fetched with a same-host redirect policy; each hostname is
+// independently checked to resolve only to public IP addresses.
+func validateJRS33PublicHost(ctx context.Context, host string) error {
+	host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+	if host == "" || net.ParseIP(host) != nil {
+		return errors.New("直播播放器主机无效，已拒绝请求")
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil || len(ips) == 0 {
+		return errors.New("直播频道域名暂时无法解析")
+	}
+	for _, entry := range ips {
+		ip := entry.IP
+		if ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+			return errors.New("直播频道解析到非公网地址，已拒绝请求")
+		}
+	}
+	return nil
+}
+
+func (p *jrs33Provider) resolveJRS33MediaPage(ctx context.Context, rawURL string, depth int, visited map[string]bool) (string, string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Port() != "" {
+		return "", "", errors.New("直播播放器页面地址无效，已拒绝请求")
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	if err := validateJRS33PublicHost(ctx, host); err != nil {
+		return "", "", err
+	}
+	key := parsed.String()
+	if visited[key] { return "", "", nil }
+	visited[key] = true
  
 	body, finalURL, err := p.getTextWithHostPolicy(ctx, parsed.String(), parsed.Scheme+"://"+parsed.Host, host)
 	if err != nil { return "", "", fmt.Errorf("读取直播频道失败: %w", err) }
@@ -205,7 +202,7 @@ func (p *jrs33Provider) resolveChannel(ctx context.Context, rawURL string) (stri
 	return "", finalURL, nil
 }
 
- func (p *jrs33Provider) matchChannels(ctx context.Context, matchID string) ([]jrs33LiveChannel, error) {
+func (p *jrs33Provider) matchChannels(ctx context.Context, matchID string) ([]jrs33LiveChannel, error) {
 	matchID = strings.TrimSpace(matchID)
 	if matchID == "" { return nil, errors.New("赛事编号不能为空") }
 	p.mu.Lock()
