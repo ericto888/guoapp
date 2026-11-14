@@ -26,6 +26,9 @@ const (
 	jrs33MatchesCacheLiveTTL = 20 * time.Second
 	jrs33MatchesCacheIdleTTL = 2 * time.Minute
 	jrs33MaxMatches = 80
+	// JRS33 currently hosts its dynamic fixture index on this exact Alibaba OSS
+	// bucket hostname. Do not broaden this to aliyuncs.com or other OSS buckets.
+	jrs33IndexScriptHost = "im-imgs-bucket.oss-accelerate.aliyuncs.com"
 )
 
 var (
@@ -271,6 +274,33 @@ func (p *jrs33Provider) currentBaseURL() string {
 }
 
 func (p *jrs33Provider) getText(ctx context.Context, rawURL, referer string) (string, string, error) {
+	return p.getTextWithHostPolicy(ctx, rawURL, referer, "")
+}
+
+// getTextFromIndexScript is deliberately narrower than getText: the initial
+// script URL and every redirect must stay on the one observed OSS bucket host.
+func (p *jrs33Provider) getTextFromIndexScript(ctx context.Context, rawURL, referer string) (string, string, error) {
+	return p.getTextWithHostPolicy(ctx, rawURL, referer, jrs33IndexScriptHost)
+}
+
+func (p *jrs33Provider) getTextWithHostPolicy(ctx context.Context, rawURL, referer, exactHost string) (string, string, error) {
+	allowedURL := func(target *url.URL) bool {
+		if target == nil || target.Scheme != "https" || target.User != nil || target.Port() != "" {
+			return false
+		}
+		host := strings.ToLower(strings.TrimSuffix(target.Hostname(), "."))
+		if net.ParseIP(host) != nil {
+			return false
+		}
+		if exactHost != "" {
+			return host == exactHost
+		}
+		return isJRS33Host(host)
+	}
+	parsedURL, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || !allowedURL(parsedURL) {
+		return "", "", errors.New("请求地址不属于允许的 HTTPS 主机，已拒绝")
+	}
 	client := p.domains.client
 	if client == nil { client = &http.Client{Timeout: 12 * time.Second} }
 	requestCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
@@ -284,7 +314,7 @@ func (p *jrs33Provider) getText(ctx context.Context, rawURL, referer string) (st
 	requestClient := *client
 	requestClient.CheckRedirect = func(request *http.Request, via []*http.Request) error {
 		if len(via) >= 5 { return errors.New("JRS33 页面重定向次数过多") }
-		if request.URL.Scheme != "https" || !isJRS33Host(request.URL.Hostname()) {
+		if !allowedURL(request.URL) {
 			return errors.New("JRS33 页面跳转到非可信域名，已拒绝")
 		}
 		if client.CheckRedirect != nil { return client.CheckRedirect(request, via) }
@@ -296,13 +326,21 @@ func (p *jrs33Provider) getText(ctx context.Context, rawURL, referer string) (st
 	if response.StatusCode < 200 || response.StatusCode >= 300 || response.Request == nil || response.Request.URL == nil {
 		return "", "", fmt.Errorf("HTTP %d", response.StatusCode)
 	}
-	if response.Request.URL.Scheme != "https" || !isJRS33Host(response.Request.URL.Hostname()) {
-		return "", "", errors.New("请求跳转到非 JRS33 域名，已拒绝")
+	if !allowedURL(response.Request.URL) {
+		return "", "", errors.New("请求跳转到非可信域名，已拒绝")
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, jrs33MaxPageBytes+1))
 	if err != nil { return "", "", err }
 	if len(body) > jrs33MaxPageBytes { return "", "", errors.New("页面超过大小限制") }
 	return string(body), response.Request.URL.String(), nil
+}
+
+func isJRS33IndexScriptURL(target *url.URL) bool {
+	if target == nil || target.Scheme != "https" || target.User != nil || target.Port() != "" {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSuffix(target.Hostname(), "."))
+	return net.ParseIP(host) == nil && host == jrs33IndexScriptHost
 }
 
 func (p *jrs33Provider) expandIndexScript(ctx context.Context, home, baseURL string) (string, error) {
@@ -313,10 +351,10 @@ func (p *jrs33Provider) expandIndexScript(ctx context.Context, home, baseURL str
 	ref, err := url.Parse(stdhtml.UnescapeString(m[1]))
 	if err != nil { return home, err }
 	scriptURL := base.ResolveReference(ref)
-	if scriptURL.Scheme != "https" || !isJRS33Host(scriptURL.Hostname()) {
-		return home, fmt.Errorf("赛事脚本地址不属于 JRS33 域名：%s（主机名：%s）", scriptURL.String(), scriptURL.Hostname())
+	if !isJRS33IndexScriptURL(scriptURL) {
+		return home, fmt.Errorf("赛事脚本地址不属于允许的赛事脚本主机：%s（主机名：%s）", scriptURL.String(), scriptURL.Hostname())
 	}
-	script, _, err := p.getText(ctx, scriptURL.String(), baseURL)
+	script, _, err := p.getTextFromIndexScript(ctx, scriptURL.String(), baseURL)
 	if err != nil { return home, err }
 	hosts := make(map[string]string)
 	for _, host := range jrs33PlayHostRE.FindAllStringSubmatch(home, -1) {
