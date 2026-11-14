@@ -47,7 +47,11 @@ class _FootballHomePageState extends State<FootballHomePage> {
     });
   }
 
-  Widget _filterChip(String label, _FootballMatchFilter filter, int count) {
+  Widget _filterChip(
+    String label,
+    _FootballMatchFilter filter,
+    int count,
+  ) {
     return ChoiceChip(
       label: Text('$label $count'),
       selected: _filter == filter,
