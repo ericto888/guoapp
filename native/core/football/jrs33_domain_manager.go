@@ -21,7 +21,8 @@ import (
 const (
 	jrs33RemoteConfigURL = "https://raw.githubusercontent.com/ericto888/guoapp/main/config/jrs33-domains.json"
 	jrs33DomainCacheTTL  = 15 * time.Minute
-	jrs33ProbeTimeout    = 8 * time.Second
+	jrs33ProbeTimeout    = 5 * time.Second
+	jrs33ConfigTimeout   = 3 * time.Second
 	jrs33MaxPageBytes    = 2 << 20
 )
 
@@ -163,30 +164,53 @@ func (manager *jrs33DomainManager) resolve(ctx context.Context) (jrs33ResolvedDo
 	}
 	candidates = uniqueJRS33Candidates(candidates)
 
-	var discovered []string
-	var lastErr error
+	type probeResult struct {
+		candidate jrs33DomainCandidate
+		base string
+		links []string
+		err error
+	}
+	results := make(chan probeResult, len(candidates))
 	for _, candidate := range candidates {
-		if err := ctx.Err(); err != nil {
-			lastErr = err
+		candidate := candidate
+		go func() {
+			base := normalizeJRS33URL(candidate.URL)
+			if base == "" {
+				results <- probeResult{candidate: candidate, err: errors.New("域名格式无效")}
+				return
+			}
+			links, err := manager.probe(ctx, base)
+			results <- probeResult{candidate: candidate, base: base, links: links, err: err}
+		}()
+	}
+
+	var best *probeResult
+	var lastErr error
+	for range candidates {
+		select {
+		case <-ctx.Done():
+			lastErr = ctx.Err()
 			break
+		case result := <-results:
+			if result.err != nil {
+				lastErr = result.err
+				continue
+			}
+			if best == nil || result.candidate.Priority > best.candidate.Priority {
+				copy := result
+				best = &copy
+			}
 		}
-		base := normalizeJRS33URL(candidate.URL)
-		if base == "" {
-			continue
-		}
-		links, err := manager.probe(ctx, base)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		discovered = append(discovered, links...)
-		discovered = uniqueJRS33Strings(discovered)
+		if ctx.Err() != nil { break }
+	}
+	if best != nil {
+		discovered := uniqueJRS33Strings(best.links)
 		manager.cache = jrs33DomainCache{
-			Version: 1, BaseURL: base, VerifiedAt: time.Now(), LastChecked: time.Now(), LastProbeFailed: false,
-			Discovered: append([]string(nil), discovered...),
+			Version: 1, BaseURL: best.base, VerifiedAt: time.Now(), LastChecked: time.Now(),
+			LastProbeFailed: false, Discovered: append([]string(nil), discovered...),
 		}
 		_ = writeNativeCacheFile(manager.cachePath, marshalJRS33DomainCache(manager.cache))
-		return jrs33ResolvedDomain{BaseURL: base, VerifiedAt: manager.cache.VerifiedAt, Discovered: discovered}, nil
+		return jrs33ResolvedDomain{BaseURL: best.base, VerifiedAt: manager.cache.VerifiedAt, Discovered: discovered}, nil
 	}
 
 	if validJRS33URL(manager.cache.BaseURL) {
@@ -210,7 +234,7 @@ func (manager *jrs33DomainManager) fetchRemoteConfig(ctx context.Context) (jrs33
 	if client == nil {
 		client = &http.Client{Timeout: jrs33ProbeTimeout}
 	}
-	requestCtx, cancel := context.WithTimeout(ctx, jrs33ProbeTimeout)
+	requestCtx, cancel := context.WithTimeout(ctx, jrs33ConfigTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, jrs33RemoteConfigURL, nil)
 	if err != nil {
