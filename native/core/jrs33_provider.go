@@ -143,7 +143,6 @@ func (p *jrs33Provider) resolveChannel(ctx context.Context, rawURL string) (stri
 		}
 		return parsed.String(), map[string]string{"Referer": parsed.String()}, nil
 	}
-	}
 	mediaURL, referer, err := p.resolveJRS33MediaPage(ctx, parsed.String(), 0, make(map[string]bool))
 	if err != nil { return "", nil, err }
 	if mediaURL == "" { return "", nil, errors.New("频道页面没有找到可直接播放的 HLS/MP4 视频地址") }
