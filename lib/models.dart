@@ -309,10 +309,12 @@ class DramaSeason {
   /// 上线日期（yyyy-MM-dd），详情没给则为空。
   String get onlineDate => drama.onlineDate;
 
-  /// 还没有上线：有上线日期且晚于今天，或一集都没有。
+  /// 有实际集数即视为已上线；否则按官方预计上线日期判断。
+  /// 这样预约时保存的旧日期不会覆盖官方接口后来返回的真实集数状态。
   bool get upcoming {
+    if (episodes > 0) return false;
     final date = DateTime.tryParse(drama.onlineDate);
-    if (date == null) return episodes == 0;
+    if (date == null) return true;
     final now = DateTime.now();
     return date.isAfter(DateTime(now.year, now.month, now.day));
   }
