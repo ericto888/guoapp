@@ -170,3 +170,25 @@ func TestJRS33DataStatusDistinguishesEmptyAndParserFailure(t *testing.T) {
 		t.Fatalf("challenge status = %q, want challenge", got)
 	}
 }
+
+func TestParseJRS33LiveMatchMetadata(t *testing.T) {
+	html := `<div class="d-touch">
+<span class="name">澳女联</span><span class="name">中央海岸水手女足</span><span class="name">珀斯光荣女足</span>
+<span class="lab_time">11-14 14:00</span><span class="lab_status" data-status="下半场" title="65′">65′</span>
+<span class="score">0:0</span><span class="half_score">0:0</span><span class="corner">4:2</span>
+<a class="me" href="/match/live-1.html">详情</a>
+</div>`
+	matches := parseJRS33Home(html, "https://www.jrkan.com/")
+	if len(matches) != 1 { t.Fatalf("matches=%d, want 1", len(matches)) }
+	got := matches[0]
+	if got.Status != "live" || got.MatchTime != "65′" { t.Fatalf("status/time=%q/%q", got.Status, got.MatchTime) }
+	if got.HomeScore == nil || got.AwayScore == nil || *got.HomeScore != 0 || *got.AwayScore != 0 { t.Fatalf("score=%v:%v", got.HomeScore, got.AwayScore) }
+	if got.HalfTimeHomeScore == nil || got.HalfTimeAwayScore == nil || *got.HalfTimeHomeScore != 0 || *got.HalfTimeAwayScore != 0 { t.Fatalf("half=%v:%v", got.HalfTimeHomeScore, got.HalfTimeAwayScore) }
+	if got.CornerHome == nil || got.CornerAway == nil || *got.CornerHome != 4 || *got.CornerAway != 2 { t.Fatalf("corners=%v:%v", got.CornerHome, got.CornerAway) }
+}
+
+func TestJRS33UnknownStatusIsNotScheduled(t *testing.T) {
+	if got := parseJRS33Status("11-14 14:00"); got != "unknown" { t.Fatalf("unknown time status mapped to %q", got) }
+	if got := parseJRS33Status("第 23 分钟"); got != "live" { t.Fatalf("minute status mapped to %q", got) }
+	if got := parseJRS33MatchTime("下半场 23′"); got != "23′" { t.Fatalf("match time=%q", got) }
+}
