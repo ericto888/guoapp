@@ -553,8 +553,8 @@ func buildJRS33MatchFromRow(row *xhtml.Node, baseURL, league, home, away, timeTe
 	return item
 }
 
-var jrs33MediaExtensionRE = regexp.MustCompile("(?i)\\.(?:m3u8|mp4|m4v|mov|flv)(?:[?#][^\\\"'<>\\\\s]*)?")
- var jrs33MediaAttributeRE = regexp.MustCompile("(?i)(?:url|src|file|playurl|m3u8)\\\\s*[:=]\\\\s*[\\\"']([^\\\"']+)[\\\"']")
+var jrs33MediaExtensionRE = regexp.MustCompile("(?i)\\.(?:m3u8|mp4|m4v|mov|flv)(?:[?#][^\\s\"'<>]*)?")
+var jrs33MediaAttributeRE = regexp.MustCompile("(?i)(?:url|src|file|playurl|m3u8)\\s*[:=]\\s*[\"']([^\"']+)[\"']")
  
  // parseJRS33MediaURL extracts explicit media resources from HTML and common player config.
  func parseJRS33MediaURL(source, baseURL string) string {
@@ -574,14 +574,14 @@ var jrs33MediaExtensionRE = regexp.MustCompile("(?i)\\.(?:m3u8|mp4|m4v|mov|flv)(
  	for _, match := range jrs33MediaExtensionRE.FindAllStringIndex(source, -1) {
  		start, end := match[0], match[1]
  		left := start
- 		for left > 0 && !strings.ContainsRune("\\\"'<>\\r\\n\\t ", rune(source[left-1])) { left-- }
+		for left > 0 && !strings.ContainsRune("\"'<> \r\n\t", rune(source[left-1])) { left-- }
  		if left < start { candidates = append(candidates, source[left:end]) }
  	}
  	for _, raw := range candidates {
  		raw = strings.TrimSpace(raw)
- 		raw = strings.Trim(raw, "\\\"'")
- 		raw = strings.ReplaceAll(raw, "\\\\/", "/")
- 		raw = strings.ReplaceAll(raw, "\\\\u0026", "&")
+		raw = strings.Trim(raw, "\"'")
+		raw = strings.ReplaceAll(raw, "\\/", "/")
+		raw = strings.ReplaceAll(raw, "\\u0026", "&")
  		raw = stdhtml.UnescapeString(raw)
  		if !jrs33MediaExtensionRE.MatchString(raw) { continue }
  		base, baseErr := url.Parse(baseURL)
