@@ -2,10 +2,38 @@ package core
 
 import (
 	"errors"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 )
+
+
+func TestJRS33IndexScriptURLTrustPolicy(t *testing.T) {
+	accepted, _ := url.Parse("https://im-imgs-bucket.oss-accelerate.aliyuncs.com/index.js?t_5")
+	if !isJRS33IndexScriptURL(accepted) {
+		t.Fatal("the observed JRS33 OSS index script host should be accepted")
+	}
+	rejected := []string{
+		"http://im-imgs-bucket.oss-accelerate.aliyuncs.com/index.js",
+		"https://sub.im-imgs-bucket.oss-accelerate.aliyuncs.com/index.js",
+		"https://im-imgs-bucket.oss-accelerate.aliyuncs.com.evil.example/index.js",
+		"https://im-imgs-bucket.oss-accelerate.aliyuncs.com:8443/index.js",
+		"https://user@im-imgs-bucket.oss-accelerate.aliyuncs.com/index.js",
+		"https://aliyuncs.com/index.js",
+		"https://other-bucket.oss-accelerate.aliyuncs.com/index.js",
+		"https://127.0.0.1/index.js",
+	}
+	for _, raw := range rejected {
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			t.Fatalf("parse %q: %v", raw, err)
+		}
+		if isJRS33IndexScriptURL(parsed) {
+			t.Errorf("untrusted script URL was accepted: %s", raw)
+		}
+	}
+}
 
 func TestParseJRS33Home(t *testing.T) {
 	html := `<!doctype html><html><body>
