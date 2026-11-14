@@ -873,12 +873,13 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
             ],
           ),
         ),
-        FollowIcon(
-          store: widget.store,
-          drama: session.detail.drama,
-          color: Colors.white,
-          activeColor: Theme.of(context).colorScheme.primaryFixedDim,
-        ),
+        if (session.detail.drama.source != 'football')
+          FollowIcon(
+            store: widget.store,
+            drama: session.detail.drama,
+            color: Colors.white,
+            activeColor: Theme.of(context).colorScheme.primaryFixedDim,
+          ),
       ],
     );
   }
