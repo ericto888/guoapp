@@ -26,6 +26,11 @@ typedef _View = ({
   Set<String>? selection,
 });
 
+/// 切换条去掉描边，只保留选中态的填充色。
+const _borderlessSegments = ButtonStyle(
+  side: WidgetStatePropertyAll(BorderSide.none),
+);
+
 class FollowPage extends StatefulWidget {
   const FollowPage({
     super.key,
@@ -90,11 +95,12 @@ class _FollowPageState extends State<FollowPage> {
       saveSetting(context, () => widget.store.markUpdatesRead(drama.id));
     }
     if (!upcomingPreview) {
-      for (final notice in state?.seriesSeasons.values ?? const []) {
-        if (!notice.read) {
-          unawaited(
-            widget.store.markSeriesSeasonRead(drama.id, notice.id),
-          );
+      final notices = state?.seriesSeasons.values;
+      if (notices != null) {
+        for (final notice in notices) {
+          if (!notice.read) {
+            unawaited(widget.store.markSeriesSeasonRead(drama.id, notice.id));
+          }
         }
       }
     }
@@ -159,9 +165,9 @@ class _FollowPageState extends State<FollowPage> {
       () => widget.store.toggleSeasonReservation(reservation),
     );
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已加入追更中')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('已加入追更中')));
   }
 
   @override
@@ -329,7 +335,9 @@ class _FollowPageState extends State<FollowPage> {
                   ? PageHeader(
                       key: const ValueKey(false),
                       title: '我的追剧',
-                      actions: _showReservations ? [] : [_editButtonFor(view, icon: false)],
+                      actions: _showReservations
+                          ? []
+                          : [_editButtonFor(view, icon: false)],
                     )
                   : PageHeader(
                       key: const ValueKey(true),
@@ -486,8 +494,7 @@ class _FollowPageState extends State<FollowPage> {
                   ),
                 ),
               ),
-            if (!_showReservations)
-              ?_sources(view, inset: televisionInset),
+            if (!_showReservations) ?_sources(view, inset: televisionInset),
           ],
         ),
       ),
@@ -553,6 +560,7 @@ class _FollowPageState extends State<FollowPage> {
               padding: EdgeInsets.fromLTRB(inset, 8, inset, 4),
               child: SegmentedButton<bool>(
                 showSelectedIcon: false,
+                style: _borderlessSegments,
                 segments: [
                   ButtonSegment<bool>(
                     value: false,
@@ -560,7 +568,9 @@ class _FollowPageState extends State<FollowPage> {
                   ),
                   ButtonSegment<bool>(
                     value: true,
-                    label: Text('预约中 ${widget.store.seasonReservations.length}'),
+                    label: Text(
+                      '预约中 ${widget.store.seasonReservations.length}',
+                    ),
                   ),
                 ],
                 selected: {_showReservations},
@@ -799,6 +809,50 @@ class _SeasonReservationSwitcherState
     }
   }
 
+  Future<void> _cancelReservation(
+    SeasonReservation reservation,
+    DramaSeason season,
+  ) async {
+    final colors = Theme.of(context).colorScheme;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('取消季预约？'),
+        content: Text('「${season.drama.title}」上线后将不再提醒。'),
+        actions: [
+          FocusRing(
+            radius: 20,
+            child: TextButton(
+              autofocus: true,
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+          ),
+          FocusRing(
+            radius: 20,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: colors.error,
+                foregroundColor: colors.onError,
+              ),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('取消预约'),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await saveSetting(
+      context,
+      () => widget.store.toggleSeasonReservation(reservation),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('已取消季预约')));
+  }
+
   Future<void> _refresh() async {
     final reservations = widget.store.seasonReservations.toList();
     final signature = _key(reservations);
@@ -817,9 +871,9 @@ class _SeasonReservationSwitcherState
           final seasons = await repository
               .seasons(reservation.drama)
               .timeout(const Duration(seconds: 20));
-          final match = seasons.where(
-            (season) => season.drama.id == reservation.id,
-          ).firstOrNull;
+          final match = seasons
+              .where((season) => season.drama.id == reservation.id)
+              .firstOrNull;
           if (match != null) refreshed[reservation.id] = match;
         } catch (_) {
           // 单条系列数据失败不影响其他预约卡片。
@@ -857,20 +911,16 @@ class _SeasonReservationSwitcherState
   }) {
     // 官方刷新数据优先；刷新失败或新接口暂未返回日期时，回退到预约时保存的日期。
     final date = DateTime.tryParse(
-      season.onlineDate.isNotEmpty
-          ? season.onlineDate
-          : reservation.onlineDate,
+      season.onlineDate.isNotEmpty ? season.onlineDate : reservation.onlineDate,
     );
     if (season.upcoming) {
       if (date == null) return '上线时间待定';
-      final dateText =
-          '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-      return '上线日期：$dateText';
+      return '${date.month}月${date.day}日上线';
     }
     if (date == null) {
       return season.episodes > 0 ? '已上线 · 共 ${season.episodes} 集' : '已上线';
     }
-    return '${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')} 已上线';
+    return '${date.month}月${date.day}日已上线';
   }
 
   @override
@@ -916,6 +966,7 @@ class _SeasonReservationSwitcherState
           const SizedBox(height: 10),
           SegmentedButton<bool>(
             showSelectedIcon: false,
+            style: _borderlessSegments,
             segments: [
               ButtonSegment<bool>(
                 value: false,
@@ -980,14 +1031,8 @@ class _SeasonReservationSwitcherState
                             onTap: season.upcoming
                                 ? () => widget.onOpenUpcoming(season.drama)
                                 : () => widget.onOpen(season.drama),
-                            onMore: () async {
-                              await widget.store.toggleSeasonReservation(reservation);
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('已取消季预约')),
-                                );
-                              }
-                            },
+                            onMore: () =>
+                                _cancelReservation(reservation, season),
                           ),
                         ),
                         if (_showLive)
