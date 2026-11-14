@@ -34,7 +34,7 @@ var hongguoUpcomingDatePattern = regexp.MustCompile(`预计(\d{1,2})月(\d{1,2})
 // 这个接口按 book_id（即剧的 series_id）返回官方认可的完整系列季列表，
 // 含待上线季（episode_cnt=0、sub_title_list 带「预计X月X日上线」），
 // 不同系列（同名不同作者）互不污染，不依赖搜索召回。
-// 成功时返回完整列表（至少 1 项），失败时返回 ok=false，调用方 fallback 到搜索聚合。
+// ok 表示只读请求成功；返回空列表表示接口没有给当前 book_id 提供官方系列分组。
 //
 // 关键参数（query string，非 body）：
 //   - scene=10, from=single_col_same_ip_series 让红果返回"同系列的季列表"
@@ -44,6 +44,7 @@ func (downloader *Downloader) hongguoPlanSeasons(ctx context.Context, bookID str
 		return nil, false
 	}
 	var seasons []hongguoPlanSeason
+	requestSucceeded := false
 	offset := ""
 	for page := 0; page < 3; page++ {
 		extra := url.Values{}
@@ -61,6 +62,7 @@ func (downloader *Downloader) hongguoPlanSeasons(ctx context.Context, bookID str
 			}
 			return nil, false
 		}
+		requestSucceeded = true
 		batch, hasMore, next := parseHongguoPlanSeasons(result, bookID)
 		seasons = append(seasons, batch...)
 		if !hasMore || next == "" {
@@ -69,7 +71,7 @@ func (downloader *Downloader) hongguoPlanSeasons(ctx context.Context, bookID str
 		offset = next
 	}
 	if len(seasons) == 0 {
-		return nil, false
+		return nil, requestSucceeded
 	}
 	return seasons, true
 }
