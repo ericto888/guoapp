@@ -314,7 +314,7 @@ func (p *jrs33Provider) expandIndexScript(ctx context.Context, home, baseURL str
 	if err != nil { return home, err }
 	scriptURL := base.ResolveReference(ref)
 	if scriptURL.Scheme != "https" || !isJRS33Host(scriptURL.Hostname()) {
-		return home, errors.New("赛事脚本地址不属于 JRS33 域名")
+		return home, fmt.Errorf("赛事脚本地址不属于 JRS33 域名：%s（主机名：%s）", scriptURL.String(), scriptURL.Hostname())
 	}
 	script, _, err := p.getText(ctx, scriptURL.String(), baseURL)
 	if err != nil { return home, err }
