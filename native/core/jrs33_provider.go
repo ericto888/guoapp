@@ -498,15 +498,7 @@ func buildJRS33MatchFromRow(row *xhtml.Node, baseURL, league, home, away, timeTe
 		if hasJRS33Class(a, "me") { detailURL = resolveJRS33Link(baseURL, jrs33Attr(a, "href")); break }
 	}
 	id := jrs33StableMatchID(detailURL, league, home, away, timeText)
-	statusText := jrs33RowStatusText(row, timeText)
-	status := parseJRS33Status(timeText)
-	if status == "unknown" {
-		status = parseJRS33Status(statusText)
-	}
-	matchTime := parseJRS33MatchTime(timeText)
-	if matchTime == "" {
-		matchTime = parseJRS33MatchTime(statusText)
-	}
+	status, matchTime := parseJRS33RowStatus(row, timeText)
 	item := jrs33Match{ID:id, League:league, HomeTeam:home, AwayTeam:away, Kickoff:parseJRS33Kickoff(timeText), Status:status, MatchTime:matchTime, DetailURL:detailURL}
 	channelSeen := make(map[string]bool)
 	for _, a := range findJRS33Elements(row, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "a" }) {
@@ -648,6 +640,60 @@ func parseJRS33Kickoff(value string) string {
 
 var jrs33MinuteRE = regexp.MustCompile("(?i)(?:第\\s*)?(\\d{1,3})\\s*(?:['′’]|分钟|分)(?:钟)?")
 var jrs33StatusClassRE = regexp.MustCompile("(?i)(?:^|\\s)(?:live|playing|ing|half|halftime|finished|end|schedule|upcoming)(?:\\s|$)")
+
+func parseJRS33RowStatus(row *xhtml.Node, timeText string) (string, string) {
+	status := parseJRS33Status(timeText)
+	minute := parseJRS33MatchTime(timeText)
+	if status != "unknown" && minute != "" {
+		return status, minute
+	}
+	for _, n := range findJRS33Elements(row, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode }) {
+		class := strings.ToLower(jrs33Attr(n, "class"))
+		isStatusNode := strings.Contains(class, "status") ||
+			strings.Contains(class, "lab_time") ||
+			strings.Contains(class, "time_status") ||
+			strings.Contains(class, "match_time")
+		if isStatusNode {
+			value := cleanJRS33Text(jrs33NodeText(n))
+			nodeStatus := parseJRS33Status(value)
+			nodeMinute := parseJRS33MatchTime(value)
+			if nodeStatus != "unknown" {
+				status = nodeStatus
+			}
+			if nodeMinute != "" {
+				minute = nodeMinute
+			}
+			if status != "unknown" {
+				return status, minute
+			}
+		}
+		for _, key := range []string{"data-status", "data-time", "data-minute", "data-period", "aria-label", "title"} {
+			value := jrs33Attr(n, key)
+			if value == "" {
+				continue
+			}
+			attrStatus := parseJRS33Status(value)
+			attrMinute := parseJRS33MatchTime(value)
+			if attrStatus != "unknown" {
+				status = attrStatus
+			}
+			if attrMinute != "" {
+				minute = attrMinute
+			}
+			if status != "unknown" {
+				return status, minute
+			}
+		}
+	}
+	rowText := jrs33RowStatusText(row, timeText)
+	if status == "unknown" {
+		status = parseJRS33Status(rowText)
+	}
+	if minute == "" {
+		minute = parseJRS33MatchTime(rowText)
+	}
+	return status, minute
+}
 
 func jrs33RowStatusText(row *xhtml.Node, timeText string) string {
 	parts := []string{timeText, cleanJRS33Text(jrs33NodeText(row))}
