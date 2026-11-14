@@ -63,6 +63,7 @@ type jrs33Provider struct {
 	loaded bool
 	cached []jrs33Match
 	cachedAt time.Time
+	detailChannels map[string][]jrs33LiveChannel
 }
 
 type jrs33MatchCache struct {
@@ -72,7 +73,7 @@ type jrs33MatchCache struct {
 }
 
 func newJRS33Provider(domains *jrs33DomainManager) *jrs33Provider {
-	return &jrs33Provider{domains: domains, cachePath: filepath.Join(filepath.Dir(domains.cachePath), "matches.json")}
+	return &jrs33Provider{domains: domains, cachePath: filepath.Join(filepath.Dir(domains.cachePath), "matches.json"), detailChannels: make(map[string][]jrs33LiveChannel)}
 }
 
 func (p *jrs33Provider) matches(ctx context.Context, force bool) ([]jrs33Match, string, error) {
@@ -111,6 +112,45 @@ func (p *jrs33Provider) matches(ctx context.Context, force bool) ([]jrs33Match, 
 	cacheBody, _ := json.Marshal(jrs33MatchCache{Version: 1, CachedAt: now, Items: p.cached})
 	_ = writeNativeCacheFile(p.cachePath, cacheBody)
 	return matches, "", nil
+}
+
+// matchChannels fetches a match detail page only when the user expands its channel list.
+// The list endpoint therefore stays fast and avoids one request per fixture.
+func (p *jrs33Provider) matchChannels(ctx context.Context, matchID string) ([]jrs33LiveChannel, error) {
+	matchID = strings.TrimSpace(matchID)
+	if matchID == "" { return nil, errors.New("赛事编号不能为空") }
+	p.mu.Lock()
+	p.loadCacheLocked()
+	for _, match := range p.cached {
+		if match.ID != matchID { continue }
+		if len(match.Channels) > 0 {
+			channels := append([]jrs33LiveChannel(nil), match.Channels...)
+			p.mu.Unlock()
+			return channels, nil
+		}
+		if channels, ok := p.detailChannels[matchID]; ok {
+			channels = append([]jrs33LiveChannel(nil), channels...)
+			p.mu.Unlock()
+			return channels, nil
+		}
+		detailURL := strings.TrimSpace(match.DetailURL)
+		p.mu.Unlock()
+		if detailURL == "" { return nil, errors.New("该赛事没有详情页地址") }
+		parsed, err := url.Parse(detailURL)
+		if err != nil || parsed.Scheme != "https" || !isJRS33Host(parsed.Hostname()) {
+			return nil, errors.New("赛事详情页地址无效，已拒绝请求")
+		}
+		body, finalURL, err := p.getText(ctx, detailURL, parsed.Scheme+"://"+parsed.Host)
+		if err != nil { return nil, fmt.Errorf("读取赛事详情失败: %w", err) }
+		if isJRS33ChallengePage(body) { return nil, errors.New("赛事详情触发 Cloudflare/反爬验证") }
+		channels := parseJRS33Channels(body, finalURL)
+		p.mu.Lock()
+		p.detailChannels[matchID] = append([]jrs33LiveChannel(nil), channels...)
+		p.mu.Unlock()
+		return channels, nil
+	}
+	p.mu.Unlock()
+	return nil, errors.New("找不到对应赛事，请刷新赛事列表")
 }
 
 func (p *jrs33Provider) loadCacheLocked() {
