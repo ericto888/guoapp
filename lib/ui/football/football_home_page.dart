@@ -14,11 +14,15 @@ class FootballHomePage extends StatefulWidget {
 
 class _FootballHomePageState extends State<FootballHomePage> {
   late Future<List<FootballMatch>> _matches;
+  var _loaded = false;
 
   @override
-  void initState() {
-    super.initState();
-    _matches = _load();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_loaded) {
+      _loaded = true;
+      _matches = _load();
+    }
   }
 
   Future<List<FootballMatch>> _load({bool force = false}) =>
