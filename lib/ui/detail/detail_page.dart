@@ -190,9 +190,12 @@ class DetailPage extends StatefulWidget {
     required this.store,
     required this.drama,
     this.autoplay = false,
+    this.upcomingPreview = false,
   });
   final LocalStore store;
   final Drama drama;
+  /// 待上线预约只展示作品简介，不请求剧集、季列表或初始化播放会话。
+  final bool upcomingPreview;
 
   /// 从发现页横幅「继续第 N 集」「立即观看」进入时为 true：
   /// 详情加载完成后直接跳到播放页并从上次位置继续。
@@ -230,6 +233,7 @@ class _DetailPageState extends State<DetailPage> {
       AppScope.of(context).repository,
       widget.store,
       widget.drama,
+      loadEpisodes: !widget.upcomingPreview,
     )..addListener(_detailsChanged);
   }
 
@@ -495,6 +499,9 @@ class _DetailPageState extends State<DetailPage> {
           ),
         );
       }
+      if (widget.upcomingPreview) {
+        return _upcomingPreviewPage(details.drama);
+      }
       final form = AppScope.formFactorOf(context);
       if (_curtain) {
         return const Scaffold(
@@ -509,6 +516,81 @@ class _DetailPageState extends State<DetailPage> {
       return _widePage(details, desktop: form == FormFactor.window);
     },
   );
+
+  /// 预约待上线作品的轻量详情：只展示已有作品元数据，不触发剧集请求。
+  Widget _upcomingPreviewPage(Drama drama) {
+    final form = AppScope.formFactorOf(context);
+    final m = form == FormFactor.television
+        ? _television
+        : form == FormFactor.phone
+        ? _phone
+        : form == FormFactor.pad
+        ? _pad
+        : _desktop;
+    return Scaffold(
+      appBar: AppBar(title: const Text('作品简介')),
+      body: ListView(
+        padding: EdgeInsets.fromLTRB(
+          form == FormFactor.phone ? 20 : 32,
+          20,
+          form == FormFactor.phone ? 20 : 32,
+          40,
+        ),
+        children: [
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 900),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _cover(drama, m),
+                  const SizedBox(width: 20),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          drama.title,
+                          style: TextStyle(
+                            fontSize: m.title,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          [
+                            SourceSite.byId(drama.source).name,
+                            if (drama.category.isNotEmpty) drama.category,
+                            if (drama.score.isNotEmpty) '评分 \${drama.score}',
+                          ].join(' · '),
+                          style: TextStyle(
+                            fontSize: m.meta,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        if (drama.description.isNotEmpty) ...[
+                          const SizedBox(height: 18),
+                          Text(
+                            '剧情简介',
+                            style: TextStyle(
+                              fontSize: m.section,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _description(drama, m),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   PreferredSizeWidget _appBar(DramaDetails details, double height) {
     final colors = Theme.of(context).colorScheme;

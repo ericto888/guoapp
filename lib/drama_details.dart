@@ -10,11 +10,15 @@ import 'models.dart';
 const episodeGroupSize = 30;
 
 class DramaDetails extends ChangeNotifier {
-  DramaDetails(this.repository, this.store, Drama drama)
-    : _drama = repository.catalogUpdates.current(drama),
-      _epoch = store.profileEpoch {
+  DramaDetails(
+    this.repository,
+    this.store,
+    Drama drama, {
+    bool loadEpisodes = true,
+  }) : _drama = repository.catalogUpdates.current(drama),
+       _epoch = store.profileEpoch {
     store.addListener(_notify);
-    load();
+    if (loadEpisodes) load();
   }
   final AppRepository repository;
   final LocalStore store;
