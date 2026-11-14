@@ -14,6 +14,9 @@ func TestNormalizeJRS33URL(t *testing.T) {
 		{"https://www.jrs13.com/", "https://www.jrs13.com"},
 		{"//www.jrkan.com", "https://www.jrkan.com"},
 		{"https://m.jrskk.com", "https://m.jrskk.com"},
+		{"https://www.jrs945.com", "https://www.jrs945.com"},
+		{"https://www.jrs80.com", "https://www.jrs80.com"},
+		{"https://www.jrs04.com", "https://www.jrs04.com"},
 		{"http://m.jrs33.com", ""},
 		{"https://jrs33.com:8443", ""},
 		{"https://evil.example", ""},
@@ -27,9 +30,9 @@ func TestNormalizeJRS33URL(t *testing.T) {
 }
 
 func TestExtractJRS33Domains(t *testing.T) {
-	page := `<footer>备用域名 www.jrs13.com www.jrs14.com www.jrs03.com m.jrs33.com</footer>`
+	page := `<footer>备用域名 www.jrs945.com www.jrs80.com www.jrs04.com www.jrs03.com m.jrs33.com</footer>`
 	got := extractJRS33Domains(page)
-	want := []string{"https://www.jrs13.com", "https://www.jrs14.com", "https://www.jrs03.com", "https://m.jrs33.com"}
+	want := []string{"https://www.jrs945.com", "https://www.jrs80.com", "https://www.jrs04.com", "https://www.jrs03.com", "https://m.jrs33.com"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("extractJRS33Domains() = %#v, want %#v", got, want)
 	}
