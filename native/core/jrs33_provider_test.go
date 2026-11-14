@@ -364,6 +364,14 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 				}
 				rawDoc, rawParseErr := xhtml.Parse(strings.NewReader(rawHome))
 				if rawParseErr == nil {
+					for i, node := range findJRS33Elements(rawDoc, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "script" && jrs33Attr(n, "src") == "" }) {
+						var inline strings.Builder
+						for child := node.FirstChild; child != nil; child = child.NextSibling { if child.Type == xhtml.TextNode { inline.WriteString(child.Data) } }
+						value := inline.String()
+						if strings.Contains(strings.ToLower(value), "config") || strings.Contains(strings.ToLower(value), "app_live") {
+							t.Logf("INLINE_SCRIPT[%d] %s", i, value)
+						}
+					}
 					scripts := findJRS33Elements(rawDoc, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "script" })
 					for i, scriptNode := range scripts {
 						if i >= 16 { break }
@@ -417,6 +425,8 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/mm.js?ver=26",
 						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/u.js?ver=23",
 						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/js/page.live-2.1-min.js?ver=20191015.1",
+						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/js/hwl.base-min.js?ver=20191015.3",
+						"https://im-imgs-bucket.oss-accelerate.aliyuncs.com/index.js?t_5",
 					} {
 						assetBody, _, assetErr := provider.getTextFromIndexScript(ctx, asset, finalURL)
 						if assetErr != nil { t.Logf("SOURCE_ASSET %s ERROR %v", asset, assetErr); continue }
