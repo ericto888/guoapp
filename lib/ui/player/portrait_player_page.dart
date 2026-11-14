@@ -1003,8 +1003,8 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                 size: 18,
                 color: Colors.white,
               ),
-              const Text(
-                '选集',
+              Text(
+                drama.source == 'football' ? '切换线路' : '选集',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 14,
