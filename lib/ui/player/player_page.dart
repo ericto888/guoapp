@@ -347,12 +347,13 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
                 label: const Text('下载'),
               ),
             ] else ...[
-              FollowPill(
-                store: widget.store,
-                drama: _drama,
-                radius: 10,
-                onToggled: _focus.requestFocus,
-              ),
+              if (_drama.source != 'football')
+                FollowPill(
+                  store: widget.store,
+                  drama: _drama,
+                  radius: 10,
+                  onToggled: _focus.requestFocus,
+                ),
               Semantics(
                 label: '下载选集',
                 button: true,
