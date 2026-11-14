@@ -172,6 +172,7 @@ type nativePlan struct {
 }
 
 type nativeEngine struct {
+	jrs33Domains     *jrs33DomainManager
 	settingsMu       sync.Mutex
 	settings         nativeResourceSettings
 	readMu           sync.Mutex
@@ -313,6 +314,7 @@ func newNativeEngine(directory, downloads string) (*nativeEngine, error) {
 			return nil
 		}}
 	engine := &nativeEngine{downloader: d, directory: directory, defaultDownloads: nativeDefaultDownloads(directory), catalogs: map[string][]nativeDrama{}, catalogStates: map[string]nativeCatalogState{}}
+	engine.jrs33Domains = newJRS33DomainManager(d.client, directory)
 	if filepath.IsAbs(downloads) {
 		engine.defaultDownloads = filepath.Clean(downloads)
 	}
