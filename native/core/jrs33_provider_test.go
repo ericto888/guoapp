@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/base64"
+	"io"
 	"errors"
 	"net/http"
 	"net/url"
@@ -360,6 +361,49 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 							if start < 0 { start = 0 }
 							if finish > len(rawHome) { finish = len(rawHome) }
 							t.Logf("HOME_%s %s", token, rawHome[start:finish])
+						}
+					}
+					for _, scriptNode := range findJRS33Elements(doc, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "script" }) {
+						src := jrs33Attr(scriptNode, "src")
+						if src == "" { continue }
+						baseURL, _ := url.Parse(finalURL)
+						refURL, _ := url.Parse(stdhtml.UnescapeString(src))
+						if baseURL == nil || refURL == nil { continue }
+						scriptURL := baseURL.ResolveReference(refURL)
+						t.Logf("PAGE_SCRIPT %s", scriptURL.String())
+						if !isJRS33Host(scriptURL.Hostname()) { continue }
+						if scriptBody, _, scriptErr := provider.getText(ctx, scriptURL.String(), finalURL); scriptErr == nil {
+							lower := strings.ToLower(scriptBody)
+							if strings.Contains(lower, "lab_vs") || strings.Contains(lower, "data-lid") || strings.Contains(lower, "lab_bc") || strings.Contains(lower, "lab_jq") || strings.Contains(lower, "sub_status") || strings.Contains(lower, "getjson") || strings.Contains(lower, "ajax") {
+								t.Logf("PAGE_SCRIPT_MATCH url=%q bytes=%d", scriptURL.String(), len(scriptBody))
+								for _, token := range []string{"lab_vs", "data-lid", "lab_bc", "lab_jq", "sub_status", "getJSON", "ajax"} {
+									pos := strings.Index(lower, strings.ToLower(token))
+									if pos >= 0 {
+										start, finish := pos-250, pos+1000
+										if start < 0 { start = 0 }
+										if finish > len(scriptBody) { finish = len(scriptBody) }
+										t.Logf("PAGE_SCRIPT_%s %s", token, scriptBody[start:finish])
+									}
+								}
+							}
+						}
+					}
+					for _, host := range []string{"play.sportsteam368.com", "play.jgdhds.com", "play.sportsteam7777.com"} {
+						for _, scheme := range []string{"https", "http"} {
+							probeURL := scheme + "://" + host + "/play/steam826545.html"
+							probeClient := &http.Client{Timeout: 4 * time.Second}
+							probeClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+								if len(via) > 3 || !strings.EqualFold(req.URL.Hostname(), host) { return errors.New("cross-host or excessive redirect") }
+								return nil
+							}
+							resp, probeErr := probeClient.Get(probeURL)
+							if probeErr != nil {
+								t.Logf("PLAYER_PROBE %s ERROR %v", probeURL, probeErr)
+								continue
+							}
+							body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+							resp.Body.Close()
+							t.Logf("PLAYER_PROBE %s status=%d final=%q type=%q bytes=%d media=%q iframes=%q body=%q", probeURL, resp.StatusCode, resp.Request.URL.String(), resp.Header.Get("Content-Type"), len(body), parseJRS33MediaURL(string(body), resp.Request.URL.String()), parseJRS33IframeURLs(string(body), resp.Request.URL.String()), string(body[:min(len(body), 1200)]))
 						}
 					}
 					if scriptRef := jrs33IndexScriptRE.FindStringSubmatch(rawHome); len(scriptRef) > 1 {
