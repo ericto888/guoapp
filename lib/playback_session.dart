@@ -156,7 +156,7 @@ class PlaybackSession extends ChangeNotifier {
     this._onRetired,
     PlaybackPlan? initialPlan,
     this._directResolver,
-    bool recordProgress = true,
+    this._recordProgress = true,
     required int index,
     double position = 0,
     bool autoplay = true,
@@ -173,7 +173,6 @@ class PlaybackSession extends ChangeNotifier {
     this._recoveryWindow = PlaybackRecovery.defaultWindow,
     this._recoveryBackoff = const Duration(seconds: 1),
   }) : _initialDirectPlan = initialPlan,
-       _recordProgress = recordProgress,
        _engaged = autoplay,
        _index = index,
        _epoch = store.profileEpoch {
@@ -1775,7 +1774,10 @@ class PlaybackSession extends ChangeNotifier {
         '解析播放地址',
         () async {
           if (retained != null) {
-            return _loader.fallback(retained!, isCurrent: () => _current(ticket));
+            return _loader.fallback(
+              retained!,
+              isCurrent: () => _current(ticket),
+            );
           }
           if (warmed != null) {
             return _loader.use(warmed, isCurrent: () => _current(ticket));
@@ -1786,7 +1788,7 @@ class PlaybackSession extends ChangeNotifier {
             return _loader.use(plan, isCurrent: () => _current(ticket));
           }
           if (_directResolver != null) {
-            final plan = await _directResolver!();
+            final plan = await _directResolver();
             return _loader.use(plan, isCurrent: () => _current(ticket));
           }
           return _loader.load(
