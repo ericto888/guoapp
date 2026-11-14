@@ -62,6 +62,14 @@ func TestParseJRS33Home(t *testing.T) {
 	}
 }
 
+func TestParseJRS33IframeURLs(t *testing.T) {
+	source := "<iframe src=\"/embed/live\"></iframe><iframe src=\"http://bad.example/player\"></iframe><iframe src=\"https://127.0.0.1/private\"></iframe>"
+	got := parseJRS33IframeURLs(source, "https://play.example.com/watch/1.html")
+	if len(got) != 1 || got[0] != "https://play.example.com/embed/live" {
+		t.Fatalf("parseJRS33IframeURLs() = %#v", got)
+	}
+}
+
 func TestParseJRS33MediaURL(t *testing.T) {
 	tests := []struct {
 		name string
