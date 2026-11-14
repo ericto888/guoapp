@@ -149,3 +149,125 @@ class _FootballHomePageState extends State<FootballHomePage> {
     );
   }
 }
+
+
+/// 发现首页使用的赛事预览，不嵌套完整页面 Scaffold。
+class FootballMatchesSection extends StatefulWidget {
+  const FootballMatchesSection({super.key, required this.onOpen});
+  final VoidCallback onOpen;
+
+  @override
+  State<FootballMatchesSection> createState() => _FootballMatchesSectionState();
+}
+
+class _FootballMatchesSectionState extends State<FootballMatchesSection> {
+  late Future<List<FootballMatch>> _matches;
+  var _loaded = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_loaded) {
+      _loaded = true;
+      _matches = AppScope.of(context).repository.footballMatches();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '足球赛事',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            TextButton(onPressed: widget.onOpen, child: const Text('更多')),
+          ],
+        ),
+        FutureBuilder<List<FootballMatch>>(
+          future: _matches,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const SizedBox(
+                height: 72,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (snapshot.hasError) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 18),
+                child: Text('赛事暂时无法加载，进入赛事中心可重试'),
+              );
+            }
+            final matches = (snapshot.data ?? const <FootballMatch>[])
+                .take(3)
+                .toList();
+            if (matches.isEmpty) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 18),
+                child: Text(
+                  '暂无赛事数据，点击“更多”进入赛事中心',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              );
+            }
+            return Column(
+              children: [
+                for (final match in matches)
+                  Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              match.homeTeam,
+                              textAlign: TextAlign.end,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Text(
+                              match.homeScore == null || match.awayScore == null
+                                  ? 'VS'
+                                  : '${match.homeScore} : ${match.awayScore}',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              match.awayTeam,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
