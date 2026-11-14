@@ -26,7 +26,6 @@ const (
 	jrs33MatchesCacheLiveTTL = 20 * time.Second
 	jrs33MatchesCacheIdleTTL = 2 * time.Minute
 	jrs33MaxMatches = 80
-	jrs33MaxDetailPages = 0
 )
 
 var (
@@ -143,11 +142,20 @@ func (p *jrs33Provider) fetchMatches(ctx context.Context, base string) ([]jrs33M
 	homeURL := strings.TrimRight(base, "/") + "/?lan=0"
 	home, finalURL, err := p.getText(ctx, homeURL, "")
 	if err != nil { return nil, fmt.Errorf("读取 JRS33 首页失败: %w", err) }
+	hasIndexScript := jrs33IndexScriptRE.MatchString(home)
 	expanded, expandErr := p.expandIndexScript(ctx, home, finalURL)
 	if expandErr == nil { home = expanded }
 	matches := parseJRS33Home(home, finalURL)
 	if len(matches) > jrs33MaxMatches { matches = matches[:jrs33MaxMatches] }
-	if len(matches) == 0 { return []jrs33Match{}, nil }
+	if len(matches) == 0 {
+		if hasIndexScript && expandErr != nil && !strings.Contains(home, "暂无赛事") {
+			return nil, fmt.Errorf("JRS33 动态赛事列表解析失败: %w", expandErr)
+		}
+		if !hasIndexScript && !strings.Contains(home, "暂无赛事") && !strings.Contains(home, "隐藏 0 场赛事") {
+			return nil, errors.New("JRS33 页面未找到预期的赛事列表结构")
+		}
+		return []jrs33Match{}, nil
+	}
 	return matches, nil
 }
 
@@ -381,7 +389,8 @@ func parseJRS33Kickoff(value string) string {
 	month, _ := strconv.Atoi(m[1]); day, _ := strconv.Atoi(m[2])
 	hour, _ := strconv.Atoi(m[3]); minute, _ := strconv.Atoi(m[4])
 	now := time.Now()
-	t := time.Date(now.Year(), time.Month(month), day, hour, minute, 0, 0, time.Local)
+	beijing := time.FixedZone("Asia/Shanghai", 8*60*60)
+	t := time.Date(now.Year(), time.Month(month), day, hour, minute, 0, 0, beijing)
 	if t.Before(now.AddDate(0, -1, 0)) { t = t.AddDate(1, 0, 0) }
 	return t.Format(time.RFC3339)
 }
