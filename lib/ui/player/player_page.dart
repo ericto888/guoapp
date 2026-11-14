@@ -73,6 +73,7 @@ class _PlayerPageState extends State<PlayerPage> with WidgetsBindingObserver {
       _playback.onLifecycleEvent(state, source: 'player_page');
 
   bool get _canDownload =>
+      _drama.source != 'football' &&
       AppScope.of(context).repository.supportsDownloads &&
       widget.store.canDownload;
 
