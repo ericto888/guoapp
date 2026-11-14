@@ -154,6 +154,8 @@ class PlaybackSession extends ChangeNotifier {
     this._spawnStandby,
     this._respawn,
     this._onRetired,
+    PlaybackPlan? initialPlan,
+    this._directResolver,
     required int index,
     double position = 0,
     bool autoplay = true,
@@ -169,7 +171,8 @@ class PlaybackSession extends ChangeNotifier {
     this._recoveryMaxAttempts = PlaybackRecovery.defaultMaxAttempts,
     this._recoveryWindow = PlaybackRecovery.defaultWindow,
     this._recoveryBackoff = const Duration(seconds: 1),
-  }) : _engaged = autoplay,
+  }) : _initialDirectPlan = initialPlan,
+       _engaged = autoplay,
        _index = index,
        _epoch = store.profileEpoch {
     final preferences = store.playbackPreferences;
@@ -289,6 +292,8 @@ class PlaybackSession extends ChangeNotifier {
   late final DanmakuController danmaku;
   late final PlaybackLoader _loader;
   late final PlaybackPreloader _preloader;
+  PlaybackPlan? _initialDirectPlan;
+  final Future<PlaybackPlan> Function()? _directResolver;
   late final _recovery = PlaybackRecovery(
     maxAttempts: _recoveryMaxAttempts,
     window: _recoveryWindow,
@@ -1765,20 +1770,33 @@ class PlaybackSession extends ChangeNotifier {
       prepared = await _guarded<PlaybackPlan?>(
         ticket,
         '解析播放地址',
-        () => retained != null
-            ? _loader.fallback(retained!, isCurrent: () => _current(ticket))
-            : warmed != null
-            ? _loader.use(warmed, isCurrent: () => _current(ticket))
-            : _loader.load(
-                detail.drama,
-                detail.episodes[index],
-                quality: _quality,
-                online: _online,
-                // 第 5 级 refresh：站源地址可能已过期，强制跳过本地
-                // 下载缓存重新解析，而不是拿旧地址再开一次。
-                force: recovery == PlaybackRecoveryAction.refresh,
-                isCurrent: () => _current(ticket),
-              ),
+        () async {
+          if (retained != null) {
+            return _loader.fallback(retained!, isCurrent: () => _current(ticket));
+          }
+          if (warmed != null) {
+            return _loader.use(warmed, isCurrent: () => _current(ticket));
+          }
+          if (_initialDirectPlan != null) {
+            final plan = _initialDirectPlan!;
+            _initialDirectPlan = null;
+            return _loader.use(plan, isCurrent: () => _current(ticket));
+          }
+          if (_directResolver != null) {
+            final plan = await _directResolver!();
+            return _loader.use(plan, isCurrent: () => _current(ticket));
+          }
+          return _loader.load(
+            detail.drama,
+            detail.episodes[index],
+            quality: _quality,
+            online: _online,
+            // 第 5 级 refresh：站源地址可能已过期，强制跳过本地
+            // 下载缓存重新解析，而不是拿旧地址再开一次。
+            force: recovery == PlaybackRecoveryAction.refresh,
+            isCurrent: () => _current(ticket),
+          );
+        },
         timeout: _resolveTimeout,
         onLate: (plan) {
           // 晚于新会话返回的解析结果必须释放它创建的原生 session。
