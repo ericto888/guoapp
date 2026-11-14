@@ -318,7 +318,8 @@ class _FootballHomePageState extends State<FootballHomePage> {
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodySmall,
                           ),
-                        if (match.cornerHome != null && match.cornerAway != null)
+                        if (match.cornerHome != null &&
+                            match.cornerAway != null)
                           Text(
                             '角球 ${match.cornerHome}:${match.cornerAway}',
                             textAlign: TextAlign.center,
