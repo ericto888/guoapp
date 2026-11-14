@@ -507,7 +507,14 @@ class _FollowPageState extends State<FollowPage> {
             padding: EdgeInsets.only(top: top),
             sliver: SliverList.list(children: header),
           ),
-          if (view.shown.isEmpty)
+          if (widget.store.seasonReservations.isNotEmpty)
+            SliverToBoxAdapter(
+              child: _SeasonReservationSwitcher(
+                store: widget.store,
+                onOpen: _open,
+              ),
+            ),
+          if (view.shown.isEmpty && widget.store.seasonReservations.isEmpty)
             SliverFillRemaining(
               hasScrollBody: false,
               child: FadeSwitcher(
@@ -661,5 +668,223 @@ class _FollowPageState extends State<FollowPage> {
     final fits = painter.width <= width - 4;
     painter.dispose();
     return fits;
+  }
+}
+
+/// 追剧页剧季预约区：通过红果系列接口刷新预约季的真实上线状态。
+class _SeasonReservationSwitcher extends StatefulWidget {
+  const _SeasonReservationSwitcher({
+    required this.store,
+    required this.onOpen,
+  });
+
+  final LocalStore store;
+  final ValueChanged<Drama> onOpen;
+
+  @override
+  State<_SeasonReservationSwitcher> createState() =>
+      _SeasonReservationSwitcherState();
+}
+
+class _SeasonReservationSwitcherState
+    extends State<_SeasonReservationSwitcher> {
+  final Map<String, DramaSeason> _fresh = {};
+  String _signature = '';
+  int _generation = 0;
+  bool _showLive = false;
+  bool _loading = false;
+
+  String _key(Iterable<SeasonReservation> reservations) =>
+      (reservations.toList()..sort((a, b) => a.id.compareTo(b.id)))
+          .map((item) => '${item.id}:${item.reservedAt}')
+          .join('|');
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SeasonReservationSwitcher oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.store != widget.store ||
+        _key(oldWidget.store.seasonReservations) !=
+            _key(widget.store.seasonReservations)) {
+      _refresh();
+    }
+  }
+
+  Future<void> _refresh() async {
+    final reservations = widget.store.seasonReservations.toList();
+    final signature = _key(reservations);
+    if (signature == _signature && _fresh.isNotEmpty) return;
+    _signature = signature;
+    final generation = ++_generation;
+    if (mounted) setState(() => _loading = true);
+    final repository = AppScope.of(context).repository;
+    final refreshed = <String, DramaSeason>{};
+    var next = 0;
+
+    Future<void> worker() async {
+      while (next < reservations.length) {
+        final reservation = reservations[next++];
+        try {
+          final seasons = await repository
+              .seasons(reservation.drama)
+              .timeout(const Duration(seconds: 20));
+          final match = seasons.where(
+            (season) => season.drama.id == reservation.id,
+          ).firstOrNull;
+          if (match != null) refreshed[reservation.id] = match;
+        } catch (_) {
+          // 单条系列数据失败不影响其他预约卡片。
+        }
+      }
+    }
+
+    await Future.wait(
+      List.generate(reservations.length.clamp(0, 4).toInt(), (_) => worker()),
+    );
+    if (!mounted || generation != _generation) return;
+    setState(() {
+      _fresh
+        ..clear()
+        ..addAll(refreshed);
+      _loading = false;
+    });
+  }
+
+  DramaSeason _season(SeasonReservation reservation) {
+    final latest = _fresh[reservation.id];
+    if (latest != null) return latest;
+    return DramaSeason(
+      number: reservation.season,
+      unit: reservation.unit,
+      title: reservation.drama.title,
+      drama: reservation.drama,
+      episodes: reservation.drama.episodes,
+    );
+  }
+
+  String _dateLabel(DramaSeason season) {
+    final date = DateTime.tryParse(season.onlineDate);
+    if (season.upcoming) {
+      if (date == null) return '预计上线：待定';
+      return '预计上线：${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    }
+    if (date == null) {
+      return season.episodes > 0 ? '已上线 · 共 ${season.episodes} 集' : '已上线';
+    }
+    return '${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')} 已上线';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reservations = widget.store.seasonReservations.toList()
+      ..sort((a, b) => b.reservedAt.compareTo(a.reservedAt));
+    if (reservations.isEmpty) return const SizedBox.shrink();
+
+    final pending = <(SeasonReservation, DramaSeason)>[];
+    final live = <(SeasonReservation, DramaSeason)>[];
+    for (final reservation in reservations) {
+      final season = _season(reservation);
+      (season.upcoming ? pending : live).add((reservation, season));
+    }
+    final shown = _showLive ? live : pending;
+    final inset = AppScope.formFactorOf(context) == FormFactor.television
+        ? televisionInset
+        : AppScope.formFactorOf(context) == FormFactor.phone
+        ? 16.0
+        : 24.0;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(inset, 14, inset, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  '剧季预约',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                ),
+              ),
+              if (_loading)
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SegmentedButton<bool>(
+            showSelectedIcon: false,
+            segments: [
+              ButtonSegment<bool>(
+                value: false,
+                label: Text('待上线 ${pending.length}'),
+              ),
+              ButtonSegment<bool>(
+                value: true,
+                label: Text('已上线 ${live.length}'),
+              ),
+            ],
+            selected: {_showLive},
+            onSelectionChanged: (value) =>
+                setState(() => _showLive = value.first),
+          ),
+          const SizedBox(height: 12),
+          if (shown.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 18),
+              child: Center(
+                child: Text(
+                  _showLive ? '暂无已上线预约' : '暂无待上线预约',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            )
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                const columns = 3;
+                const gap = 10.0;
+                final tileWidth =
+                    (constraints.maxWidth - gap * (columns - 1)) / columns;
+                return GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: EdgeInsets.zero,
+                  itemCount: shown.length,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    crossAxisSpacing: gap,
+                    mainAxisSpacing: 14,
+                    mainAxisExtent: DramaTile.extentFor(context, tileWidth),
+                  ),
+                  itemBuilder: (context, index) {
+                    final (reservation, season) = shown[index];
+                    return DramaTile(
+                      key: ValueKey('reservation-${reservation.id}'),
+                      drama: season.drama,
+                      subtitle: _dateLabel(season),
+                      onTap: () => widget.onOpen(season.drama),
+                      onMore: () async {
+                        await widget.store.toggleSeasonReservation(reservation);
+                      },
+                    );
+                  },
+                );
+              },
+            ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
   }
 }
