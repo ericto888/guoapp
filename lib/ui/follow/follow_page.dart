@@ -841,13 +841,21 @@ class _SeasonReservationSwitcherState
     );
   }
 
-  String _dateLabel(DramaSeason season) {
-    final date = DateTime.tryParse(season.onlineDate);
+  String _dateLabel(
+    DramaSeason season, {
+    required SeasonReservation reservation,
+  }) {
+    // 官方刷新数据优先；刷新失败或新接口暂未返回日期时，回退到预约时保存的日期。
+    final date = DateTime.tryParse(
+      season.onlineDate.isNotEmpty
+          ? season.onlineDate
+          : reservation.onlineDate,
+    );
     if (season.upcoming) {
-      if (date == null) return '预计上线：待定';
+      if (date == null) return '上线时间待定';
       final dateText =
           '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-      return '预计 $dateText';
+      return '上线日期：$dateText';
     }
     if (date == null) {
       return season.episodes > 0 ? '已上线 · 共 ${season.episodes} 集' : '已上线';
@@ -954,8 +962,14 @@ class _SeasonReservationSwitcherState
                           child: DramaTile(
                             key: ValueKey('reservation-${reservation.id}'),
                             drama: season.drama,
-                            subtitle: _dateLabel(season),
-                            onTap: () => widget.onOpen(season.drama),
+                            subtitle: _dateLabel(
+                              season,
+                              reservation: reservation,
+                            ),
+                            // 待上线季只展示预约信息，不允许进入详情/剧情简介。
+                            onTap: season.upcoming
+                                ? null
+                                : () => widget.onOpen(season.drama),
                             onMore: () async {
                               await widget.store.toggleSeasonReservation(reservation);
                               if (context.mounted) {
