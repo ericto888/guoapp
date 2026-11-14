@@ -45,6 +45,7 @@ type jrs33DomainCache struct {
 	BaseURL     string    `json:"baseUrl"`
 	VerifiedAt  time.Time `json:"verifiedAt"`
 	LastChecked time.Time `json:"lastChecked"`
+	LastProbeFailed bool `json:"lastProbeFailed,omitempty"`
 	Discovered  []string  `json:"discovered,omitempty"`
 }
 
@@ -137,7 +138,7 @@ func (manager *jrs33DomainManager) resolve(ctx context.Context) (jrs33ResolvedDo
 
 	now := time.Now()
 	if validJRS33URL(manager.cache.BaseURL) && now.Sub(manager.cache.LastChecked) >= 0 && now.Sub(manager.cache.LastChecked) < jrs33DomainCacheTTL {
-		return jrs33ResolvedDomain{BaseURL: manager.cache.BaseURL, VerifiedAt: manager.cache.VerifiedAt, Discovered: append([]string(nil), manager.cache.Discovered...)}, nil
+		return jrs33ResolvedDomain{BaseURL: manager.cache.BaseURL, Stale: manager.cache.LastProbeFailed, VerifiedAt: manager.cache.VerifiedAt, Discovered: append([]string(nil), manager.cache.Discovered...)}, nil
 	}
 
 	candidates := []jrs33DomainCandidate{
@@ -173,7 +174,7 @@ func (manager *jrs33DomainManager) resolve(ctx context.Context) (jrs33ResolvedDo
 		discovered = append(discovered, links...)
 		discovered = uniqueJRS33Strings(discovered)
 		manager.cache = jrs33DomainCache{
-			Version: 1, BaseURL: base, VerifiedAt: time.Now(), LastChecked: time.Now(),
+			Version: 1, BaseURL: base, VerifiedAt: time.Now(), LastChecked: time.Now(), LastProbeFailed: false,
 			Discovered: append([]string(nil), discovered...),
 		}
 		_ = writeNativeCacheFile(manager.cachePath, marshalJRS33DomainCache(manager.cache))
@@ -182,6 +183,7 @@ func (manager *jrs33DomainManager) resolve(ctx context.Context) (jrs33ResolvedDo
 
 	if validJRS33URL(manager.cache.BaseURL) {
 		manager.cache.LastChecked = now
+		manager.cache.LastProbeFailed = true
 		_ = writeNativeCacheFile(manager.cachePath, mustJSON(manager.cache))
 		return jrs33ResolvedDomain{
 			BaseURL: manager.cache.BaseURL, Stale: true, VerifiedAt: manager.cache.VerifiedAt,
