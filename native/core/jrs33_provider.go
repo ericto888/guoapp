@@ -680,7 +680,7 @@ func parseJRS33MatchTime(value string) string {
 	// Some compact JRS33 rows show the elapsed minute as a bare suffix:
 	// "11-14 14:00 65". Only accept a standalone number after kickoff.
 	compact := jrs33CompactTimeStatus(value)
-	if regexp.MustCompile(\`^([1-9][0-9]?)$\`).MatchString(compact) {
+	if regexp.MustCompile("^([1-9][0-9]?)$").MatchString(compact) {
 		return compact + "′"
 	}
 	return ""
