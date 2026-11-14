@@ -156,7 +156,7 @@ class PlaybackSession extends ChangeNotifier {
     this._onRetired,
     PlaybackPlan? initialPlan,
     this._directResolver,
-    this._recordProgress = true,
+    this.recordProgress = true,
     required int index,
     double position = 0,
     bool autoplay = true,
@@ -295,7 +295,7 @@ class PlaybackSession extends ChangeNotifier {
   late final PlaybackPreloader _preloader;
   PlaybackPlan? _initialDirectPlan;
   final Future<PlaybackPlan> Function()? _directResolver;
-  final bool _recordProgress;
+  final bool recordProgress;
   late final _recovery = PlaybackRecovery(
     maxAttempts: _recoveryMaxAttempts,
     window: _recoveryWindow,
@@ -3401,7 +3401,7 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   Future<void> saveProgress({bool quiet = false}) async {
-    if (!_recordProgress || !_engaged || _openedIndex < 0 || store.profileEpoch != _epoch) return;
+    if (!recordProgress || !_engaged || _openedIndex < 0 || store.profileEpoch != _epoch) return;
     final position = player.state.position.inMilliseconds / 1000;
     final duration = player.state.duration.inMilliseconds / 1000;
     if (position < .1) return;
