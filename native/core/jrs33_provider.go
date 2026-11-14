@@ -131,32 +131,57 @@ func (p *jrs33Provider) matches(ctx context.Context, force bool) ([]jrs33Match, 
 // resolveChannel converts a JRS33 channel landing page into a direct media URL.
  // It accepts only HTTPS pages on their original public hostname and never treats
  // an HTML page itself as a playable stream.
- func (p *jrs33Provider) resolveChannel(ctx context.Context, rawURL string) (string, map[string]string, error) {
- 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
- 	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Port() != "" {
- 		return "", nil, errors.New("直播频道地址无效，已拒绝请求")
- 	}
- 	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
- 	if net.ParseIP(host) != nil { return "", nil, errors.New("直播频道主机无效，已拒绝请求") }
- 	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
- 	if err != nil || len(ips) == 0 { return "", nil, errors.New("直播频道域名暂时无法解析") }
- 	for _, entry := range ips {
- 		ip := entry.IP
- 		if ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
- 			return "", nil, errors.New("直播频道解析到非公网地址，已拒绝请求")
- 		}
- 	}
- 	body, finalURL, err := p.getTextWithHostPolicy(ctx, parsed.String(), parsed.Scheme+"://"+parsed.Host, host)
- 	if err != nil { return "", nil, fmt.Errorf("读取直播频道失败: %w", err) }
- 	if isJRS33ChallengePage(body) { return "", nil, errors.New("直播频道触发 Cloudflare/反爬验证") }
- 	mediaURL := parseJRS33MediaURL(body, finalURL)
- 	if mediaURL == "" { return "", nil, errors.New("频道页面没有找到可直接播放的 HLS/MP4 视频地址") }
- 	return mediaURL, map[string]string{
- 		"Referer": finalURL,
- 		"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
- 	}, nil
- }
- 
+// resolveChannel converts a JRS33 channel landing page into a direct media URL.
+func (p *jrs33Provider) resolveChannel(ctx context.Context, rawURL string) (string, map[string]string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Port() != "" {
+		return "", nil, errors.New("直播频道地址无效，已拒绝请求")
+	}
+	mediaURL, referer, err := p.resolveJRS33MediaPage(ctx, parsed.String(), 0, make(map[string]bool))
+	if err != nil { return "", nil, err }
+	if mediaURL == "" { return "", nil, errors.New("频道页面没有找到可直接播放的 HLS/MP4 视频地址") }
+	return mediaURL, map[string]string{
+		"Referer": referer,
+		"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+	}, nil
+}
+
+// resolveJRS33MediaPage follows at most two levels of public HTTPS player iframes.
+// Every page is fetched with a same-host redirect policy and private-address
+// protection; each cross-host iframe is independently validated before fetching.
+func (p *jrs33Provider) resolveJRS33MediaPage(ctx context.Context, rawURL string, depth int, visited map[string]bool) (string, string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Port() != "" {
+		return "", "", errors.New("直播播放器页面地址无效，已拒绝请求")
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	if net.ParseIP(host) != nil { return "", "", errors.New("直播播放器主机无效，已拒绝请求") }
+	key := parsed.String()
+	if visited[key] { return "", "", nil }
+	visited[key] = true
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil || len(ips) == 0 { return "", "", errors.New("直播频道域名暂时无法解析") }
+	for _, entry := range ips {
+		ip := entry.IP
+		if ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+			return "", "", errors.New("直播频道解析到非公网地址，已拒绝请求")
+		}
+	}
+	body, finalURL, err := p.getTextWithHostPolicy(ctx, parsed.String(), parsed.Scheme+"://"+parsed.Host, host)
+	if err != nil { return "", "", fmt.Errorf("读取直播频道失败: %w", err) }
+	if isJRS33ChallengePage(body) { return "", "", errors.New("直播频道触发 Cloudflare/反爬验证") }
+	if mediaURL := parseJRS33MediaURL(body, finalURL); mediaURL != "" {
+		return mediaURL, finalURL, nil
+	}
+	if depth >= 2 { return "", finalURL, nil }
+	for _, iframeURL := range parseJRS33IframeURLs(body, finalURL) {
+		mediaURL, referer, iframeErr := p.resolveJRS33MediaPage(ctx, iframeURL, depth+1, visited)
+		if iframeErr != nil { continue }
+		if mediaURL != "" { return mediaURL, referer, nil }
+	}
+	return "", finalURL, nil
+}
+
  func (p *jrs33Provider) matchChannels(ctx context.Context, matchID string) ([]jrs33LiveChannel, error) {
 	matchID = strings.TrimSpace(matchID)
 	if matchID == "" { return nil, errors.New("赛事编号不能为空") }
@@ -557,7 +582,29 @@ var jrs33MediaExtensionRE = regexp.MustCompile("(?i)\\.(?:m3u8|mp4|m4v|mov|flv)(
 var jrs33MediaAttributeRE = regexp.MustCompile("(?i)(?:url|src|file|playurl|m3u8)\\s*[:=]\\s*[\"']([^\"']+)[\"']")
  
  // parseJRS33MediaURL extracts explicit media resources from HTML and common player config.
- func parseJRS33MediaURL(source, baseURL string) string {
+ func parseJRS33IframeURLs(source, baseURL string) []string {
+	doc, err := xhtml.Parse(strings.NewReader(source))
+	if err != nil { return nil }
+	seen := make(map[string]bool)
+	var result []string
+	for _, n := range findJRS33Elements(doc, func(n *xhtml.Node) bool {
+		return n.Type == xhtml.ElementNode && n.Data == "iframe"
+	}) {
+		raw := jrs33Attr(n, "src")
+		if raw == "" { continue }
+		base, baseErr := url.Parse(baseURL)
+		ref, refErr := url.Parse(raw)
+		if baseErr != nil || refErr != nil { continue }
+		resolved := base.ResolveReference(ref)
+		if resolved.Scheme != "https" || resolved.Hostname() == "" || resolved.User != nil || resolved.Port() != "" { continue }
+		if net.ParseIP(resolved.Hostname()) != nil { continue }
+		value := resolved.String()
+		if !seen[value] { seen[value] = true; result = append(result, value) }
+	}
+	return result
+}
+
+func parseJRS33MediaURL(source, baseURL string) string {
  	candidates := []string{}
  	doc, err := xhtml.Parse(strings.NewReader(source))
  	if err == nil {
