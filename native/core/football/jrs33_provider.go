@@ -26,7 +26,7 @@ const (
 	jrs33MatchesCacheLiveTTL = 20 * time.Second
 	jrs33MatchesCacheIdleTTL = 2 * time.Minute
 	jrs33MaxMatches = 80
-	jrs33MaxDetailPages = 40
+	jrs33MaxDetailPages = 0
 )
 
 var (
@@ -36,6 +36,7 @@ var (
 	jrs33WriteRE = regexp.MustCompile(`(?s)document\.write\(\s*'(([^'\\]|\\.)*('\s*\+\s*getPlayUrl\("\w+",\s*"\w+"\)\s*\+\s*'([^'\\]|\\.)*)*)'\s*\);`)
 	jrs33DateTimeRE = regexp.MustCompile(`(?i)(\d{1,2})[-月/](\d{1,2})日?\s+(\d{1,2}):(\d{2})`)
 	jrs33ScoreRE = regexp.MustCompile(`(\d{1,2})\s*[:：-]\s*(\d{1,2})`)
+	jrs33ChannelLabelRE = regexp.MustCompile(`(直播|信号|线路|高清|超清|蓝光|源)\s*[①-⑳0-9]`)
 )
 
 type jrs33LiveChannel struct {
@@ -147,13 +148,6 @@ func (p *jrs33Provider) fetchMatches(ctx context.Context, base string) ([]jrs33M
 	matches := parseJRS33Home(home, finalURL)
 	if len(matches) > jrs33MaxMatches { matches = matches[:jrs33MaxMatches] }
 	if len(matches) == 0 { return []jrs33Match{}, nil }
-	detailCount := 0
-	for i := range matches {
-		if matches[i].DetailURL == "" || detailCount >= jrs33MaxDetailPages { continue }
-		detailCount++
-		detailHTML, detailURL, fetchErr := p.getText(ctx, matches[i].DetailURL, finalURL)
-		if fetchErr == nil { matches[i].Channels = parseJRS33Channels(detailHTML, detailURL) }
-	}
 	return matches, nil
 }
 
@@ -255,6 +249,17 @@ func parseJRS33Home(source, baseURL string) []jrs33Match {
 		if seen[id] { continue }
 		seen[id] = true
 		item := jrs33Match{ID:id, League:league, HomeTeam:home, AwayTeam:away, Kickoff:parseJRS33Kickoff(timeText), Status:parseJRS33Status(cleanJRS33Text(jrs33NodeText(row))), DetailURL:detailURL}
+		// 首页 index.js 已把每场比赛的编号直播入口写入对应比赛行，优先直接解析这些入口，
+		// 避免为了列表而逐场请求详情页。
+		channelSeen := make(map[string]bool)
+		for _, a := range findJRS33Elements(row, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "a" }) {
+			name := cleanJRS33Text(jrs33NodeText(a))
+			if !jrs33ChannelLabelRE.MatchString(name) { continue }
+			link := resolveJRS33ChannelLink(baseURL, jrs33Attr(a, "href"))
+			if link == "" || channelSeen[link] { continue }
+			channelSeen[link] = true
+			item.Channels = append(item.Channels, jrs33LiveChannel{Name:name, URL:link})
+		}
 		scores := findJRS33Elements(row, func(n *xhtml.Node) bool { return hasJRS33Class(n, "score") || hasJRS33Class(n, "lab_score") })
 		if len(scores) > 0 {
 			if hs, as, ok := parseJRS33Score(jrs33NodeText(scores[0])); ok { item.HomeScore, item.AwayScore = &hs, &as }
