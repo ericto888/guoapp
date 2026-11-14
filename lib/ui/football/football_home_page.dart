@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core_bridge.dart';
 import '../../football_models.dart';
@@ -88,7 +89,7 @@ class _FootballHomePageState extends State<FootballHomePage> {
                   const SizedBox(height: 8),
                   Center(
                     child: Text(
-                      '赛事数据源将在下一阶段接入',
+                      '当前暂无可展示赛事，请稍后刷新',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -137,6 +138,40 @@ class _FootballHomePageState extends State<FootballHomePage> {
                           textAlign: TextAlign.center,
                           style: theme.textTheme.bodySmall,
                         ),
+                        if (match.channels.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          ExpansionTile(
+                            tilePadding: EdgeInsets.zero,
+                            dense: true,
+                            title: Text('直播频道（${match.channels.length}）'),
+                            children: [
+                              for (final channel in match.channels)
+                                ListTile(
+                                  dense: true,
+                                  leading: const Icon(Icons.play_circle_outline),
+                                  title: Text(channel.name),
+                                  subtitle: const Text('打开第三方直播入口'),
+                                  onTap: () async {
+                                    final uri = Uri.tryParse(channel.url);
+                                    if (uri == null ||
+                                        !uri.isScheme('https') ||
+                                        !await canLaunchUrl(uri)) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('直播入口暂时无法打开')),
+                                        );
+                                      }
+                                      return;
+                                    }
+                                    await launchUrl(
+                                      uri,
+                                      mode: LaunchMode.externalApplication,
+                                    );
+                                  },
+                                ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),
