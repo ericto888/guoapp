@@ -185,6 +185,8 @@ abstract class AppRepository {
   Future<List<FootballLiveChannel>> footballMatchChannels(
     String matchId,
   ) async => const [];
+  Future<PlaybackPlan> footballResolveChannel(String channelUrl) async =>
+      throw AppFailure('当前环境不支持足球直播播放');
   Future<void> initialize();
   Future<CatalogPage> catalog(
     String source, {
@@ -564,6 +566,7 @@ class NativeRepository extends AppRepository {
       'resolve',
       'fallback',
       'preload',
+      'footballResolveChannel',
     }.contains(input['action']);
     try {
       final action = input['action'] as String;
@@ -729,6 +732,16 @@ class NativeRepository extends AppRepository {
       for (final row in result['items'] as List? ?? const [])
         FootballLiveChannel.fromJson(Map<String, dynamic>.from(row as Map)),
     ];
+  }
+
+
+  @override
+  Future<PlaybackPlan> footballResolveChannel(String channelUrl) async {
+    final result = await _call({
+      'action': 'footballResolveChannel',
+      'channelUrl': channelUrl,
+    });
+    return PlaybackPlan.fromJson(result);
   }
 
   @override
