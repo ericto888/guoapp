@@ -176,7 +176,7 @@ func (manager *jrs33DomainManager) resolve(ctx context.Context) (jrs33ResolvedDo
 			Version: 1, BaseURL: base, VerifiedAt: time.Now(), LastChecked: time.Now(),
 			Discovered: append([]string(nil), discovered...),
 		}
-		_ = writeNativeCacheFile(manager.cachePath, mustJSON(manager.cache))
+		_ = writeNativeCacheFile(manager.cachePath, marshalJRS33DomainCache(manager.cache))
 		return jrs33ResolvedDomain{BaseURL: base, VerifiedAt: manager.cache.VerifiedAt, Discovered: discovered}, nil
 	}
 
@@ -310,7 +310,7 @@ func uniqueJRS33Strings(items []string) []string {
 	return result
 }
 
-func mustJSON(value any) []byte {
+func marshalJRS33DomainCache(value any) []byte {
 	body, _ := json.Marshal(value)
 	return body
 }
