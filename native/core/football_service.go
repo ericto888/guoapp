@@ -39,3 +39,12 @@ func (engine *nativeEngine) footballMatches(ctx context.Context, force bool) (an
 	}
 	return result, nil
 }
+
+// footballMatchChannels resolves channels on demand for one selected fixture.
+func (engine *nativeEngine) footballMatchChannels(ctx context.Context, matchID string) (any, error) {
+	if err := ctx.Err(); err != nil { return nil, err }
+	if engine.jrs33Provider == nil { return map[string]any{"items": []any{}, "warning": "JRS33 数据服务尚未初始化"}, nil }
+	channels, err := engine.jrs33Provider.matchChannels(ctx, matchID)
+	if err != nil { return nil, err }
+	return map[string]any{"items": channels}, nil
+}
