@@ -96,7 +96,9 @@ class _FootballHomePageState extends State<FootballHomePage> {
     List<FootballLiveChannel> channels,
     int initialIndex,
   ) async {
-    if (channels.isEmpty || initialIndex < 0 || initialIndex >= channels.length) {
+    if (channels.isEmpty ||
+        initialIndex < 0 ||
+        initialIndex >= channels.length) {
       return;
     }
     final repository = AppScope.of(context).repository;
@@ -156,7 +158,9 @@ class _FootballHomePageState extends State<FootballHomePage> {
       dense: true,
       leading: const Icon(Icons.play_circle_outline),
       title: Text(channel.name),
-      subtitle: Text(index == 0 ? '默认线路 · GuoApp 内置播放器' : 'GuoApp 内置播放器'),
+      subtitle: Text(
+        index == 0 ? '默认线路 · GuoApp 内置播放器' : 'GuoApp 内置播放器',
+      ),
       onTap: () => _playChannel(context, match, channels, index),
     );
   }
@@ -430,7 +434,12 @@ class _FootballHomePageState extends State<FootballHomePage> {
                             children: [
                               if (match.channels.isNotEmpty)
                                 for (var i = 0; i < match.channels.length; i++)
-                                  _channelTile(context, match, match.channels, i)
+                                  _channelTile(
+                                    context,
+                                    match,
+                                    match.channels,
+                                    i,
+                                  )
                               else
                                 FutureBuilder<List<FootballLiveChannel>>(
                                   future: _channelLoads[match.id],
@@ -470,7 +479,12 @@ class _FootballHomePageState extends State<FootballHomePage> {
                                     return Column(
                                       children: [
                                         for (var i = 0; i < channels.length; i++)
-                                          _channelTile(context, match, channels, i),
+                                          _channelTile(
+                                            context,
+                                            match,
+                                            channels,
+                                            i,
+                                          ),
                                       ],
                                     );
                                   },
