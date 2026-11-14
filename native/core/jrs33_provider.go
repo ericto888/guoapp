@@ -23,8 +23,8 @@ import (
 )
 
 const (
-	jrs33MatchesCacheLiveTTL = 20 * time.Second
-	jrs33MatchesCacheIdleTTL = 2 * time.Minute
+	jrs33MatchesCacheLiveTTL = 15 * time.Second
+	jrs33MatchesCacheIdleTTL = 30 * time.Second
 	jrs33MaxMatches = 80
 	// JRS33 currently hosts its dynamic fixture index on this exact Alibaba OSS
 	// bucket hostname. Do not broaden this to aliyuncs.com or other OSS buckets.
@@ -53,8 +53,13 @@ type jrs33Match struct {
 	AwayTeam string `json:"awayTeam"`
 	Kickoff string `json:"kickoff,omitempty"`
 	Status string `json:"status"`
+	MatchTime string `json:"matchTime,omitempty"`
 	HomeScore *int `json:"homeScore,omitempty"`
 	AwayScore *int `json:"awayScore,omitempty"`
+	HalfTimeHomeScore *int `json:"halfTimeHomeScore,omitempty"`
+	HalfTimeAwayScore *int `json:"halfTimeAwayScore,omitempty"`
+	CornerHome *int `json:"cornerHome,omitempty"`
+	CornerAway *int `json:"cornerAway,omitempty"`
 	DetailURL string `json:"detailUrl,omitempty"`
 	Channels []jrs33LiveChannel `json:"channels,omitempty"`
 }
@@ -89,7 +94,7 @@ func (p *jrs33Provider) matches(ctx context.Context, force bool) ([]jrs33Match, 
 	if !force && len(p.cached) > 0 {
 		ttl := jrs33MatchesCacheIdleTTL
 		for _, match := range p.cached {
-			if match.Status == "live" || match.Status == "halftime" {
+			if match.Status == "live" || match.Status == "halftime" || match.Status == "unknown" {
 				ttl = jrs33MatchesCacheLiveTTL
 				break
 			}
@@ -444,6 +449,8 @@ func parseJRS33TableRows(doc *xhtml.Node, baseURL string) []jrs33Match {
 	homeCol := index("主队", "home team")
 	awayCol := index("客队", "away team")
 	scoreCol := index("比分", "score")
+	halfCol := index("半场", "半场比分", "halftime")
+	cornerCol := index("角球", "corners")
 	if homeCol < 0 || awayCol < 0 { return nil }
 	var result []jrs33Match
 	seen := make(map[string]bool)
@@ -459,6 +466,12 @@ func parseJRS33TableRows(doc *xhtml.Node, baseURL string) []jrs33Match {
 		item := buildJRS33MatchFromRow(row, baseURL, league, home, away, timeText)
 		if scoreCol >= 0 && scoreCol < len(cells) {
 			if hs, as, ok := parseJRS33Score(jrs33NodeText(cells[scoreCol])); ok { item.HomeScore, item.AwayScore = &hs, &as }
+		}
+		if halfCol >= 0 && halfCol < len(cells) {
+			if hs, as, ok := parseJRS33Score(jrs33NodeText(cells[halfCol])); ok { item.HalfTimeHomeScore, item.HalfTimeAwayScore = &hs, &as }
+		}
+		if cornerCol >= 0 && cornerCol < len(cells) {
+			if hs, as, ok := parseJRS33Score(jrs33NodeText(cells[cornerCol])); ok { item.CornerHome, item.CornerAway = &hs, &as }
 		}
 		if item.ID == "" || seen[item.ID] { continue }
 		seen[item.ID] = true
@@ -481,7 +494,8 @@ func buildJRS33MatchFromRow(row *xhtml.Node, baseURL, league, home, away, timeTe
 		if hasJRS33Class(a, "me") { detailURL = resolveJRS33Link(baseURL, jrs33Attr(a, "href")); break }
 	}
 	id := jrs33StableMatchID(detailURL, league, home, away, timeText)
-	item := jrs33Match{ID:id, League:league, HomeTeam:home, AwayTeam:away, Kickoff:parseJRS33Kickoff(timeText), Status:parseJRS33Status(cleanJRS33Text(jrs33NodeText(row))), DetailURL:detailURL}
+	statusText := jrs33RowStatusText(row, timeText)
+	item := jrs33Match{ID:id, League:league, HomeTeam:home, AwayTeam:away, Kickoff:parseJRS33Kickoff(timeText), Status:parseJRS33Status(statusText), MatchTime:parseJRS33MatchTime(statusText), DetailURL:detailURL}
 	channelSeen := make(map[string]bool)
 	for _, a := range findJRS33Elements(row, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "a" }) {
 		name := cleanJRS33Text(jrs33NodeText(a))
@@ -495,6 +509,10 @@ func buildJRS33MatchFromRow(row *xhtml.Node, baseURL, league, home, away, timeTe
 	if len(scores) > 0 && item.HomeScore == nil {
 		if hs, as, ok := parseJRS33Score(jrs33NodeText(scores[0])); ok { item.HomeScore, item.AwayScore = &hs, &as }
 	}
+	halfNodes := findJRS33Elements(row, func(n *xhtml.Node) bool { return hasJRS33Class(n, "half") || hasJRS33Class(n, "half_score") || hasJRS33Class(n, "halftime") || hasJRS33Class(n, "lab_half") })
+	if len(halfNodes) > 0 { if hs, as, ok := parseJRS33Score(jrs33NodeText(halfNodes[0])); ok { item.HalfTimeHomeScore, item.HalfTimeAwayScore = &hs, &as } }
+	cornerNodes := findJRS33Elements(row, func(n *xhtml.Node) bool { return hasJRS33Class(n, "corner") || hasJRS33Class(n, "corners") || hasJRS33Class(n, "lab_corner") })
+	if len(cornerNodes) > 0 { if hs, as, ok := parseJRS33Score(jrs33NodeText(cornerNodes[0])); ok { item.CornerHome, item.CornerAway = &hs, &as } }
 	return item
 }
 
@@ -616,15 +634,37 @@ func parseJRS33Kickoff(value string) string {
 	return t.Format(time.RFC3339)
 }
 
+var jrs33MinuteRE = regexp.MustCompile("(?i)(?:第\\s*)?(\\d{1,3})\\s*(?:['′’]|分钟|分)(?:钟)?")
+var jrs33StatusClassRE = regexp.MustCompile("(?i)(?:^|\\s)(?:live|playing|ing|half|halftime|finished|end|schedule|upcoming)(?:\\s|$)")
+
+func jrs33RowStatusText(row *xhtml.Node, timeText string) string {
+	parts := []string{timeText}
+	for _, n := range findJRS33Elements(row, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode }) {
+		for _, key := range []string{"title", "aria-label", "data-status", "data-time", "data-minute", "data-period"} {
+			if value := jrs33Attr(n, key); value != "" { parts = append(parts, value) }
+		}
+		class := jrs33Attr(n, "class")
+		if class != "" && jrs33StatusClassRE.MatchString(class) { parts = append(parts, class) }
+	}
+	return cleanJRS33Text(strings.Join(parts, " "))
+}
+
+func parseJRS33MatchTime(value string) string {
+	m := jrs33MinuteRE.FindStringSubmatch(value)
+	if len(m) < 2 { return "" }
+	return m[1] + "′"
+}
+
 func parseJRS33Status(value string) string {
+	lower := strings.ToLower(value)
 	switch {
-	case strings.Contains(value, "中场"), strings.Contains(value, "半场休息"): return "halftime"
-	case strings.Contains(value, "进行中"), strings.Contains(value, "直播中"), strings.Contains(value, "上半场"), strings.Contains(value, "下半场"): return "live"
-	case strings.Contains(value, "完场"), strings.Contains(value, "已结束"), strings.Contains(value, "全场"): return "finished"
-	case strings.Contains(value, "延期"), strings.Contains(value, "推迟"): return "postponed"
-	case strings.Contains(value, "取消"): return "cancelled"
-	case strings.Contains(value, "未开赛"), strings.Contains(value, "赛前"): return "scheduled"
-	default: return "scheduled"
+	case strings.Contains(value, "中场"), strings.Contains(value, "半场休息"), strings.Contains(lower, "halftime"), strings.Contains(lower, "half-time"): return "halftime"
+	case strings.Contains(value, "完场"), strings.Contains(value, "已结束"), strings.Contains(value, "全场"), strings.Contains(lower, "finished"), strings.Contains(lower, "ended"): return "finished"
+	case strings.Contains(value, "延期"), strings.Contains(value, "推迟"), strings.Contains(lower, "postponed"): return "postponed"
+	case strings.Contains(value, "取消"), strings.Contains(lower, "cancelled"), strings.Contains(lower, "canceled"): return "cancelled"
+	case strings.Contains(value, "未开赛"), strings.Contains(value, "赛前"), strings.Contains(lower, "scheduled"), strings.Contains(lower, "upcoming"): return "scheduled"
+	case strings.Contains(value, "进行中"), strings.Contains(value, "直播中"), strings.Contains(value, "上半场"), strings.Contains(value, "下半场"), strings.Contains(value, "加时"), strings.Contains(value, "点球"), strings.Contains(lower, "live"), strings.Contains(lower, "playing"), jrs33MinuteRE.MatchString(value): return "live"
+	default: return "unknown"
 	}
 }
 
@@ -642,6 +682,11 @@ func marshalJRS33Matches(matches []jrs33Match) []map[string]any {
 		if m.Kickoff != "" { item["kickoff"] = m.Kickoff }
 		if m.HomeScore != nil { item["homeScore"] = *m.HomeScore }
 		if m.AwayScore != nil { item["awayScore"] = *m.AwayScore }
+		if m.MatchTime != "" { item["matchTime"] = m.MatchTime }
+		if m.HalfTimeHomeScore != nil { item["halfTimeHomeScore"] = *m.HalfTimeHomeScore }
+		if m.HalfTimeAwayScore != nil { item["halfTimeAwayScore"] = *m.HalfTimeAwayScore }
+		if m.CornerHome != nil { item["cornerHome"] = *m.CornerHome }
+		if m.CornerAway != nil { item["cornerAway"] = *m.CornerAway }
 		out = append(out, item)
 	}
 	return out
