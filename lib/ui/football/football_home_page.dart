@@ -10,7 +10,7 @@ import '../player/playback_handle.dart';
 import '../app_scope.dart';
 import '../player/playback_page.dart';
 
-enum _FootballMatchFilter { all, live, upcoming, finished }
+enum _FootballMatchFilter { all, live, upcoming, finished, unknown }
 
 /// 足球赛事中心首页。数据通过 Go 核心获取，不依赖影视剧库。
 class FootballHomePage extends StatefulWidget {
@@ -222,12 +222,16 @@ class _FootballHomePageState extends State<FootballHomePage> {
             final finishedCount = matches
                 .where((m) => m.status == 'finished')
                 .length;
+            final unknownCount = matches
+                .where((m) => m.status == 'unknown')
+                .length;
             final visibleMatches = matches.where((match) {
               return switch (_filter) {
                 _FootballMatchFilter.all => true,
                 _FootballMatchFilter.live => match.isLive,
                 _FootballMatchFilter.upcoming => match.status == 'scheduled',
                 _FootballMatchFilter.finished => match.status == 'finished',
+                _FootballMatchFilter.unknown => match.status == 'unknown',
               };
             }).toList();
 
@@ -264,6 +268,12 @@ class _FootballHomePageState extends State<FootballHomePage> {
                           '已结束',
                           _FootballMatchFilter.finished,
                           finishedCount,
+                        ),
+                        const SizedBox(width: 8),
+                        _filterChip(
+                          '待确认',
+                          _FootballMatchFilter.unknown,
+                          unknownCount,
                         ),
                       ],
                     ),
