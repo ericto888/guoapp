@@ -28,6 +28,7 @@ class EpisodeGrid extends StatefulWidget {
     this.downloading = const {},
     this.minCellWidth,
     this.inset = 16,
+    this.labelBuilder,
   });
   final List<Episode> episodes;
   final int current;
@@ -41,6 +42,7 @@ class EpisodeGrid extends StatefulWidget {
   final Set<int> downloading;
   final double? minCellWidth;
   final double inset;
+  final String Function(Episode episode)? labelBuilder;
 
   @override
   State<EpisodeGrid> createState() => _EpisodeGridState();
@@ -251,6 +253,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                     child: index < _episodes.length
                         ? _EpisodeCell(
                             episode: _episodes[index],
+                            label: widget.labelBuilder?.call(_episodes[index]) ?? '${_episodes[index].number}',
                             current: index == widget.current,
                             watched: index < widget.current,
                             selected: selecting
@@ -326,6 +329,7 @@ class _EpisodeGridState extends State<EpisodeGrid> {
 class _EpisodeCell extends StatelessWidget {
   const _EpisodeCell({
     required this.episode,
+    required this.label,
     required this.current,
     required this.watched,
     required this.selected,
@@ -333,6 +337,7 @@ class _EpisodeCell extends StatelessWidget {
     this.marker,
   });
   final Episode episode;
+  final String label;
   final bool current;
   final bool watched;
   final bool? selected;
@@ -353,7 +358,7 @@ class _EpisodeCell extends StatelessWidget {
       button: true,
       selected: selected ?? current,
       label:
-          '第 ${episode.number} 集${episode.vip ? '，VIP' : ''}'
+          '${label}${episode.vip ? '，VIP' : ''}'
           '${marker == null
               ? ''
               : marker == Icons.check_rounded
@@ -404,7 +409,7 @@ class _EpisodeCell extends StatelessWidget {
                         color: foreground,
                       ),
                     Text(
-                      '${episode.number}',
+                      label,
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: current ? FontWeight.w700 : FontWeight.w500,
