@@ -878,14 +878,15 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                   ],
                 ),
               ),
-              FollowIcon(
-                store: widget.store,
-                drama: session.detail.drama,
-                color: Colors.white,
-                activeColor: Theme.of(context).colorScheme.primaryFixedDim,
-                size: 22,
-                extent: 44,
-              ),
+              if (session.detail.drama.source != 'football')
+                FollowIcon(
+                  store: widget.store,
+                  drama: session.detail.drama,
+                  color: Colors.white,
+                  activeColor: Theme.of(context).colorScheme.primaryFixedDim,
+                  size: 22,
+                  extent: 44,
+                ),
               const SizedBox(width: 8),
               if (_battery case final battery?) ...[
                 _batteryMark(battery),
