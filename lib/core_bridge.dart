@@ -714,7 +714,9 @@ class NativeRepository extends AppRepository {
   }
 
   @override
-  Future<List<FootballLiveChannel>> footballMatchChannels(String matchId) async {
+  Future<List<FootballLiveChannel>> footballMatchChannels(
+    String matchId,
+  ) async {
     final result = await _read('football-channels-$matchId', {
       'action': 'footballMatchChannels',
       'matchId': matchId,
