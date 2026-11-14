@@ -124,6 +124,7 @@ type nativeInput struct {
 	Board           string                  `json:"board"`
 	Entries         []nativeDownloadEpisode `json:"entries"`
 	JobID           string                  `json:"jobId"`
+	MatchID         string                  `json:"matchId"`
 	Command         string                  `json:"command"`
 	Action          string                  `json:"action"`
 	Directory       string                  `json:"directory"`
@@ -406,6 +407,8 @@ func nativeDispatch(input nativeInput) (any, error) {
 	switch input.Action {
 	case "footballMatches":
 		return engine.footballMatches(ctx, input.Force)
+	case "footballMatchChannels":
+		return engine.footballMatchChannels(ctx, input.MatchID)
 	case "updateSystemProxy":
 		return true, engine.updateSystemProxy(input.SystemProxy)
 	case "resourceSettings":
