@@ -128,7 +128,36 @@ func (p *jrs33Provider) matches(ctx context.Context, force bool) ([]jrs33Match, 
 
 // matchChannels fetches a match detail page only when the user expands its channel list.
 // The list endpoint therefore stays fast and avoids one request per fixture.
-func (p *jrs33Provider) matchChannels(ctx context.Context, matchID string) ([]jrs33LiveChannel, error) {
+// resolveChannel converts a JRS33 channel landing page into a direct media URL.
+ // It accepts only HTTPS pages on their original public hostname and never treats
+ // an HTML page itself as a playable stream.
+ func (p *jrs33Provider) resolveChannel(ctx context.Context, rawURL string) (string, map[string]string, error) {
+ 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+ 	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Port() != "" {
+ 		return "", nil, errors.New("直播频道地址无效，已拒绝请求")
+ 	}
+ 	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+ 	if net.ParseIP(host) != nil { return "", nil, errors.New("直播频道主机无效，已拒绝请求") }
+ 	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+ 	if err != nil || len(ips) == 0 { return "", nil, errors.New("直播频道域名暂时无法解析") }
+ 	for _, entry := range ips {
+ 		ip := entry.IP
+ 		if ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+ 			return "", nil, errors.New("直播频道解析到非公网地址，已拒绝请求")
+ 		}
+ 	}
+ 	body, finalURL, err := p.getTextWithHostPolicy(ctx, parsed.String(), parsed.Scheme+"://"+parsed.Host, host)
+ 	if err != nil { return "", nil, fmt.Errorf("读取直播频道失败: %w", err) }
+ 	if isJRS33ChallengePage(body) { return "", nil, errors.New("直播频道触发 Cloudflare/反爬验证") }
+ 	mediaURL := parseJRS33MediaURL(body, finalURL)
+ 	if mediaURL == "" { return "", nil, errors.New("频道页面没有找到可直接播放的 HLS/MP4 视频地址") }
+ 	return mediaURL, map[string]string{
+ 		"Referer": finalURL,
+ 		"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+ 	}, nil
+ }
+ 
+ func (p *jrs33Provider) matchChannels(ctx context.Context, matchID string) ([]jrs33LiveChannel, error) {
 	matchID = strings.TrimSpace(matchID)
 	if matchID == "" { return nil, errors.New("赛事编号不能为空") }
 	p.mu.Lock()
@@ -524,7 +553,49 @@ func buildJRS33MatchFromRow(row *xhtml.Node, baseURL, league, home, away, timeTe
 	return item
 }
 
-func parseJRS33Channels(source, baseURL string) []jrs33LiveChannel {
+var jrs33MediaExtensionRE = regexp.MustCompile("(?i)\\.(?:m3u8|mp4|m4v|mov|flv)(?:[?#][^\\\"'<>\\\\s]*)?")
+ var jrs33MediaAttributeRE = regexp.MustCompile("(?i)(?:url|src|file|playurl|m3u8)\\\\s*[:=]\\\\s*[\\\"']([^\\\"']+)[\\\"']")
+ 
+ // parseJRS33MediaURL extracts explicit media resources from HTML and common player config.
+ func parseJRS33MediaURL(source, baseURL string) string {
+ 	candidates := []string{}
+ 	doc, err := xhtml.Parse(strings.NewReader(source))
+ 	if err == nil {
+ 		for _, n := range findJRS33Elements(doc, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode }) {
+ 			if n.Data != "video" && n.Data != "source" && n.Data != "iframe" { continue }
+ 			for _, key := range []string{"src", "data-src", "data-url"} {
+ 				if value := jrs33Attr(n, key); value != "" { candidates = append(candidates, value) }
+ 			}
+ 		}
+ 	}
+ 	for _, match := range jrs33MediaAttributeRE.FindAllStringSubmatch(source, -1) {
+ 		if len(match) > 1 { candidates = append(candidates, match[1]) }
+ 	}
+ 	for _, match := range jrs33MediaExtensionRE.FindAllStringIndex(source, -1) {
+ 		start, end := match[0], match[1]
+ 		left := start
+ 		for left > 0 && !strings.ContainsRune("\\\"'<>\\r\\n\\t ", rune(source[left-1])) { left-- }
+ 		if left < start { candidates = append(candidates, source[left:end]) }
+ 	}
+ 	for _, raw := range candidates {
+ 		raw = strings.TrimSpace(raw)
+ 		raw = strings.Trim(raw, "\\\"'")
+ 		raw = strings.ReplaceAll(raw, "\\\\/", "/")
+ 		raw = strings.ReplaceAll(raw, "\\\\u0026", "&")
+ 		raw = stdhtml.UnescapeString(raw)
+ 		if !jrs33MediaExtensionRE.MatchString(raw) { continue }
+ 		base, baseErr := url.Parse(baseURL)
+ 		ref, refErr := url.Parse(raw)
+ 		if baseErr != nil || refErr != nil { continue }
+ 		resolved := base.ResolveReference(ref)
+ 		if resolved.Scheme != "https" || resolved.Hostname() == "" || resolved.User != nil || resolved.Port() != "" { continue }
+ 		if ip := net.ParseIP(resolved.Hostname()); ip != nil { continue }
+ 		return resolved.String()
+ 	}
+ 	return ""
+ }
+ 
+ func parseJRS33Channels(source, baseURL string) []jrs33LiveChannel {
 	doc, err := xhtml.Parse(strings.NewReader(source))
 	if err != nil { return nil }
 	containers := findJRS33Elements(doc, func(n *xhtml.Node) bool { return hasJRS33Class(n, "sub_playlist") })
