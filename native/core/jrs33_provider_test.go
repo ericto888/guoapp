@@ -469,7 +469,7 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 							scriptURL := baseURL.ResolveReference(refURL)
 							if script, _, scriptErr := provider.getTextFromIndexScript(ctx, scriptURL.String(), finalURL); scriptErr == nil {
 								t.Logf("INDEX_SCRIPT url=%q bytes=%d", scriptURL.String(), len(script))
-								for _, token := range []string{"getPlayUrl", "document.write", "providerid", "urlid", "data-play"} {
+								for _, token := range []string{"openRandomUrl1", "openRandomUrl", "data-play", "providerid", "urlid", "getPlayUrl", "document.write"} {
 									pos := strings.Index(script, token)
 									if pos >= 0 {
 										start, finish := pos-500, pos+1800
