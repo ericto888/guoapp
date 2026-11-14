@@ -342,6 +342,15 @@ func parseJRS33Home(source, baseURL string) []jrs33Match {
 	doc, err := xhtml.Parse(strings.NewReader(source))
 	if err != nil { return nil }
 	rows := findJRS33Elements(doc, func(n *xhtml.Node) bool { return hasJRS33Class(n, "d-touch") })
+	matches := parseJRS33ClassRows(rows, baseURL)
+	if len(matches) > 0 { return matches }
+	// Some JRS mirrors render the same fixture feed as a conventional HTML table
+	// instead of the mobile .d-touch cards. Fall back to the visible column headers;
+	// never filter by league or gender (NBA and women's leagues are valid fixtures).
+	return parseJRS33TableRows(doc, baseURL)
+}
+
+func parseJRS33ClassRows(rows []*xhtml.Node, baseURL string) []jrs33Match {
 	matches := make([]jrs33Match, 0, len(rows))
 	seen := make(map[string]bool)
 	for _, row := range rows {
@@ -354,32 +363,95 @@ func parseJRS33Home(source, baseURL string) []jrs33Match {
 		times := findJRS33Elements(row, func(n *xhtml.Node) bool { return hasJRS33Class(n, "lab_time") })
 		timeText := ""
 		if len(times) > 0 { timeText = cleanJRS33Text(jrs33NodeText(times[0])) }
-		detailURL := ""
-		for _, a := range findJRS33Elements(row, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "a" }) {
-			if hasJRS33Class(a, "me") { detailURL = resolveJRS33Link(baseURL, jrs33Attr(a, "href")); break }
-		}
-		id := jrs33StableMatchID(detailURL, league, home, away, timeText)
-		if seen[id] { continue }
-		seen[id] = true
-		item := jrs33Match{ID:id, League:league, HomeTeam:home, AwayTeam:away, Kickoff:parseJRS33Kickoff(timeText), Status:parseJRS33Status(cleanJRS33Text(jrs33NodeText(row))), DetailURL:detailURL}
-		// 首页 index.js 已把每场比赛的编号直播入口写入对应比赛行，优先直接解析这些入口，
-		// 避免为了列表而逐场请求详情页。
-		channelSeen := make(map[string]bool)
-		for _, a := range findJRS33Elements(row, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "a" }) {
-			name := cleanJRS33Text(jrs33NodeText(a))
-			if !jrs33ChannelLabelRE.MatchString(name) { continue }
-			link := resolveJRS33ChannelLink(baseURL, jrs33Attr(a, "href"))
-			if link == "" || channelSeen[link] { continue }
-			channelSeen[link] = true
-			item.Channels = append(item.Channels, jrs33LiveChannel{Name:name, URL:link})
-		}
-		scores := findJRS33Elements(row, func(n *xhtml.Node) bool { return hasJRS33Class(n, "score") || hasJRS33Class(n, "lab_score") })
-		if len(scores) > 0 {
-			if hs, as, ok := parseJRS33Score(jrs33NodeText(scores[0])); ok { item.HomeScore, item.AwayScore = &hs, &as }
-		}
+		item := buildJRS33MatchFromRow(row, baseURL, league, home, away, timeText)
+		if item.ID == "" || seen[item.ID] { continue }
+		seen[item.ID] = true
 		matches = append(matches, item)
 	}
 	return matches
+}
+
+func parseJRS33TableRows(doc *xhtml.Node, baseURL string) []jrs33Match {
+	rows := findJRS33Elements(doc, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "tr" })
+	var header []string
+	for _, row := range rows {
+		cells := directJRS33Cells(row)
+		if len(cells) < 3 { continue }
+		values := make([]string, len(cells))
+		for i, cell := range cells { values[i] = cleanJRS33Text(jrs33NodeText(cell)) }
+		hasHome, hasAway := false, false
+		for _, value := range values {
+			if strings.Contains(value, "主队") || strings.EqualFold(value, "home team") { hasHome = true }
+			if strings.Contains(value, "客队") || strings.EqualFold(value, "away team") { hasAway = true }
+		}
+		if hasHome && hasAway { header = values; break }
+	}
+	if len(header) == 0 { return nil }
+	index := func(keys ...string) int {
+		for i, value := range header {
+			for _, key := range keys {
+				if strings.Contains(strings.ToLower(value), strings.ToLower(key)) { return i }
+			}
+		}
+		return -1
+	}
+	leagueCol := index("赛事", "联赛", "league")
+	timeCol := index("时间状态", "开赛时间", "时间", "time")
+	homeCol := index("主队", "home team")
+	awayCol := index("客队", "away team")
+	scoreCol := index("比分", "score")
+	if homeCol < 0 || awayCol < 0 { return nil }
+	var result []jrs33Match
+	seen := make(map[string]bool)
+	for _, row := range rows {
+		cells := directJRS33Cells(row)
+		if len(cells) <= homeCol || len(cells) <= awayCol { continue }
+		home := cleanJRS33Text(jrs33NodeText(cells[homeCol]))
+		away := cleanJRS33Text(jrs33NodeText(cells[awayCol]))
+		if home == "" || away == "" || strings.EqualFold(home, "home team") || strings.EqualFold(away, "away team") { continue }
+		league, timeText := "", ""
+		if leagueCol >= 0 && leagueCol < len(cells) { league = cleanJRS33Text(jrs33NodeText(cells[leagueCol])) }
+		if timeCol >= 0 && timeCol < len(cells) { timeText = cleanJRS33Text(jrs33NodeText(cells[timeCol])) }
+		item := buildJRS33MatchFromRow(row, baseURL, league, home, away, timeText)
+		if scoreCol >= 0 && scoreCol < len(cells) {
+			if hs, as, ok := parseJRS33Score(jrs33NodeText(cells[scoreCol])); ok { item.HomeScore, item.AwayScore = &hs, &as }
+		}
+		if item.ID == "" || seen[item.ID] { continue }
+		seen[item.ID] = true
+		result = append(result, item)
+	}
+	return result
+}
+
+func directJRS33Cells(row *xhtml.Node) []*xhtml.Node {
+	var cells []*xhtml.Node
+	for child := row.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type == xhtml.ElementNode && (child.Data == "td" || child.Data == "th") { cells = append(cells, child) }
+	}
+	return cells
+}
+
+func buildJRS33MatchFromRow(row *xhtml.Node, baseURL, league, home, away, timeText string) jrs33Match {
+	detailURL := ""
+	for _, a := range findJRS33Elements(row, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "a" }) {
+		if hasJRS33Class(a, "me") { detailURL = resolveJRS33Link(baseURL, jrs33Attr(a, "href")); break }
+	}
+	id := jrs33StableMatchID(detailURL, league, home, away, timeText)
+	item := jrs33Match{ID:id, League:league, HomeTeam:home, AwayTeam:away, Kickoff:parseJRS33Kickoff(timeText), Status:parseJRS33Status(cleanJRS33Text(jrs33NodeText(row))), DetailURL:detailURL}
+	channelSeen := make(map[string]bool)
+	for _, a := range findJRS33Elements(row, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "a" }) {
+		name := cleanJRS33Text(jrs33NodeText(a))
+		if !jrs33ChannelLabelRE.MatchString(name) { continue }
+		link := resolveJRS33ChannelLink(baseURL, jrs33Attr(a, "href"))
+		if link == "" || channelSeen[link] { continue }
+		channelSeen[link] = true
+		item.Channels = append(item.Channels, jrs33LiveChannel{Name:name, URL:link})
+	}
+	scores := findJRS33Elements(row, func(n *xhtml.Node) bool { return hasJRS33Class(n, "score") || hasJRS33Class(n, "lab_score") })
+	if len(scores) > 0 && item.HomeScore == nil {
+		if hs, as, ok := parseJRS33Score(jrs33NodeText(scores[0])); ok { item.HomeScore, item.AwayScore = &hs, &as }
+	}
+	return item
 }
 
 func parseJRS33Channels(source, baseURL string) []jrs33LiveChannel {
