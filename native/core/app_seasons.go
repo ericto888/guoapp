@@ -85,14 +85,16 @@ func (engine *nativeEngine) nativeSeasons(ctx context.Context, input nativeInput
 		return nativeSeasonResult{}, errors.New("剧集信息无效")
 	}
 
-	// 红果：先用官方 plan/v 拿到当前系列组里的季作为骨架。
-	// 官方组只是「第一批可信数据」，不保证完整：红果常把首季或个别季
-	// 单独建组，返回的可能只是 [2,3] 或 [2,5]。只有季号从 1 开始且连续时
-	// 才能直接返回，否则交给后面的双向补齐。
+	// 红果：官方 plan/v 是系列季列表的主数据源，包含已上线季和待上线预告。
+	// 只要官方接口返回了有效的多季结果（且 hongguoOfficialSeasons 已确认
+	// 当前季并完成同名过滤），就直接返回，不再要求季号必须从第 1 季连续。
+	// 从第 2 季或更后面的季进入时，官方列表可能不含第 1 季；用连续性判断
+	// 会错误触发搜索、详情校验和跨组扩展，季数越多，首屏等待越明显。
+	// 官方接口失败或只返回单季时，才保留原有搜索聚合兜底。
 	var skeleton []nativeSeason
 	if source == sourceHongguo && hongguoNumericID.MatchString(sourceID) {
 		if result, ok := engine.hongguoOfficialSeasons(ctx, sourceID, input.Drama); ok {
-			if seasonsCompleteFromFirst(result.Items) {
+			if len(result.Items) > 1 {
 				return result, nil
 			}
 			skeleton = result.Items
