@@ -184,7 +184,7 @@ func (manager *jrs33DomainManager) resolve(ctx context.Context) (jrs33ResolvedDo
 	if validJRS33URL(manager.cache.BaseURL) {
 		manager.cache.LastChecked = now
 		manager.cache.LastProbeFailed = true
-		_ = writeNativeCacheFile(manager.cachePath, mustJSON(manager.cache))
+		_ = writeNativeCacheFile(manager.cachePath, marshalJRS33DomainCache(manager.cache))
 		return jrs33ResolvedDomain{
 			BaseURL: manager.cache.BaseURL, Stale: true, VerifiedAt: manager.cache.VerifiedAt,
 			Discovered: append([]string(nil), manager.cache.Discovered...),
