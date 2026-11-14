@@ -1,6 +1,10 @@
 package core
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestParseJRS33Home(t *testing.T) {
 	html := `<!doctype html><html><body>
@@ -56,5 +60,30 @@ func TestResolveJRS33ChannelLink(t *testing.T) {
 	}
 	if got := resolveJRS33ChannelLink("https://www.jrkan.com/", "http://example.com/a"); got != "" {
 		t.Fatalf("non-HTTPS URL should be rejected, got %q", got)
+	}
+}
+
+func TestJRS33IndexScriptPatterns(t *testing.T) {
+	home := `<script src="/js/index.js?v=2"></script><script>var PLAY_HOSTS={line1:atob("aHR0cHM6Ly9wbGF5LmV4YW1wbGUuY29t")};var playUrl=host+"/play/"+id+".html";</script>`
+	if got := jrs33IndexScriptRE.FindStringSubmatch(home); len(got) != 2 || got[1] != "/js/index.js?v=2" {
+		t.Fatalf("index script match = %#v", got)
+	}
+	if got := jrs33PlayHostRE.FindStringSubmatch(`line1: atob("aHR0cHM6Ly9wbGF5LmV4YW1wbGUuY29t")`); len(got) != 3 || got[1] != "line1" {
+		t.Fatalf("play host match = %#v", got)
+	}
+	if got := jrs33PlayPathRE.FindStringSubmatch(`host + "/play/" + id + ".html"`); len(got) != 3 || got[1] != "/play/" || got[2] != ".html" {
+		t.Fatalf("play path match = %#v", got)
+	}
+	script := `document.write('<a href="'+getPlayUrl("line1","match001")+'">直播①</a>');`
+	if got := jrs33WriteRE.FindStringSubmatch(script); len(got) < 2 || !strings.Contains(got[1], "getPlayUrl") {
+		t.Fatalf("document.write match = %#v", got)
+	}
+}
+
+func TestParseJRS33Kickoff(t *testing.T) {
+	got := parseJRS33Kickoff("11-14 20:30 未开赛")
+	if got == "" { t.Fatal("kickoff parser returned empty string") }
+	if _, err := time.Parse(time.RFC3339, got); err != nil {
+		t.Fatalf("kickoff %q is not RFC3339: %v", got, err)
 	}
 }
