@@ -10,6 +10,7 @@ import '../app_scope.dart';
 import '../shell/app_shell.dart';
 import '../theme/motion.dart';
 import '../detail/detail_page.dart';
+import '../football/football_home_page.dart';
 import '../widgets/bar_button.dart';
 import '../widgets/category_tabs.dart';
 import '../widgets/choice_panel.dart';
@@ -117,7 +118,7 @@ class ExplorePageState extends State<ExplorePage> {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: _explore!,
+    listenable: Listenable.merge([_explore!, widget.store]),
     builder: (context, _) {
       final explore = _explore!;
       final source = explore.source;
@@ -247,7 +248,21 @@ class ExplorePageState extends State<ExplorePage> {
     final hero = _hero(explore, _blurring && !television);
     final items = explore.items;
     if (feed.items.isEmpty) {
-      return FadeSwitcher(child: _status(feed));
+      return Column(
+        children: [
+          Expanded(child: FadeSwitcher(child: _status(feed))),
+          if (widget.store.showFootballOnHome)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: FootballMatchesSection(
+                onOpen: () => openPage<void>(
+                  context,
+                  (_) => const FootballHomePage(),
+                ),
+              ),
+            ),
+        ],
+      );
     }
     final phone = AppScope.formFactorOf(context) == FormFactor.phone;
     final desktop = AppScope.formFactorOf(context) == FormFactor.window;
@@ -355,6 +370,18 @@ class ExplorePageState extends State<ExplorePage> {
               ),
               sliver: SliverToBoxAdapter(child: FeedFooter(feed: feed)),
             ),
+            if (widget.store.showFootballOnHome)
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(inset, 8, inset, 24),
+                sliver: SliverToBoxAdapter(
+                  child: FootballMatchesSection(
+                    onOpen: () => openPage<void>(
+                      context,
+                      (_) => const FootballHomePage(),
+                    ),
+                  ),
+                ),
+              ),
           ],
         );
         return Stack(
