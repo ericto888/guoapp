@@ -257,7 +257,7 @@ class ExplorePageState extends State<ExplorePage> {
               child: FootballMatchesSection(
                 onOpen: () => openPage<void>(
                   context,
-                  (_) => const FootballHomePage(),
+                  (_) => FootballHomePage(store: widget.store),
                 ),
               ),
             ),
