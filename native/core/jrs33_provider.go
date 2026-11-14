@@ -202,10 +202,16 @@ func (p *jrs33Provider) fetchMatches(ctx context.Context, base string) ([]jrs33M
 	matches := parseJRS33Home(home, finalURL)
 	if len(matches) > jrs33MaxMatches { matches = matches[:jrs33MaxMatches] }
 	if len(matches) == 0 {
-		if hasIndexScript && expandErr != nil {
-			return nil, fmt.Errorf("JRS33 动态赛事列表解析失败: %w", expandErr)
+		if hasIndexScript {
+			if expandErr != nil {
+				return nil, fmt.Errorf("JRS33 动态赛事列表解析失败: %w", expandErr)
+			}
+			// A present and successfully downloaded index.js is not proof that the
+			// fixture feed is empty. If its generated markup cannot be parsed, report
+			// a parser failure instead of presenting a misleading "0 matches" state.
+			return nil, errors.New("JRS33 动态赛事脚本已展开，但未解析出任何赛事行")
 		}
-		if !hasIndexScript && !strings.Contains(home, "暂无赛事") && !strings.Contains(home, "隐藏 0 场赛事") {
+		if !strings.Contains(home, "暂无赛事") && !strings.Contains(home, "隐藏 0 场赛事") {
 			return nil, errors.New("JRS33 页面未找到预期的赛事列表结构")
 		}
 		return []jrs33Match{}, nil
