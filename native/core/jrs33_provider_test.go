@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"net/url"
+
+	stdhtml "html"
 
 	xhtml "golang.org/x/net/html"
 )
@@ -336,11 +339,35 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 				if parseErr == nil {
 					rows := findJRS33Elements(doc, func(n *xhtml.Node) bool { return hasJRS33Class(n, "d-touch") })
 					t.Logf("RAW_HOME final=%q bytes=%d rows=%d expanded=%v", finalURL, len(home), len(rows), expandErr == nil)
+					seenTypes := make(map[string]bool)
+					loggedTypes := 0
 					for i, row := range rows {
-						if i >= 4 { break }
+						stype := jrs33Attr(row, "data-stype")
+						if seenTypes[stype] { continue }
+						seenTypes[stype] = true
+						if loggedTypes >= 8 { break }
 						var markup strings.Builder
 						_ = xhtml.Render(&markup, row)
-						t.Logf("RAW_ROW[%d] %s", i, markup.String())
+						t.Logf("RAW_ROW[%d] stype=%q %s", i, stype, markup.String())
+						loggedTypes++
+					}
+					if scriptRef := jrs33IndexScriptRE.FindStringSubmatch(home); len(scriptRef) > 1 {
+						baseURL, _ := url.Parse(finalURL)
+						refURL, _ := url.Parse(stdhtml.UnescapeString(scriptRef[1]))
+						if baseURL != nil && refURL != nil {
+							scriptURL := baseURL.ResolveReference(refURL)
+							if script, _, scriptErr := provider.getTextFromIndexScript(ctx, scriptURL.String(), finalURL); scriptErr == nil {
+								t.Logf("INDEX_SCRIPT url=%q bytes=%d", scriptURL.String(), len(script))
+								for _, token := range []string{"getPlayUrl", "document.write", "providerid", "urlid", "data-play"} {
+									pos := strings.Index(script, token)
+									if pos >= 0 {
+										start, end := pos-500, pos+1800
+										if start < 0 { start = 0 }; if end > len(script) { end = len(script) }
+										t.Logf("SCRIPT_%s %s", token, script[start:end])
+										}
+								}
+							}
+						}
 					}
 				}
 			} else {
