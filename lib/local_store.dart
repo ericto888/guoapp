@@ -714,12 +714,17 @@ class LocalStore extends ChangeNotifier {
     }).then((_) => reserved);
   }
 
-  /// 已上线（到日期或季列表里已有集数）的预约；供提醒条展示。
+  /// 查询预约记录。
+  ///
+  /// 详情页传入当前官方季列表的 ID 后，返回这些季的全部预约记录，
+  /// 由详情页用最新 DramaSeason 判断是否已经上线。不能只检查预约时保存的
+  /// Drama 快照：预约时通常 episodes=0，之后上线了快照也不会自动变化。
+  /// 不传 seasonIds 时，仍只返回按预约快照可确认已上线的记录。
   List<SeasonReservation> liveSeasonReservations({Set<String>? seasonIds}) {
     final ids = seasonIds;
     return _seasonReservations.values
         .where((item) => ids?.contains(item.id) ?? true)
-        .where((item) => item.isLive || (item.drama.episodes > 0))
+        .where((item) => ids != null || item.isLive || item.drama.episodes > 0)
         .toList();
   }
 
