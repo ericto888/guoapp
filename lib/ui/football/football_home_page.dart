@@ -118,7 +118,12 @@ class _FootballHomePageState extends State<FootballHomePage> {
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                   const SizedBox(height: 12),
-                  const Center(child: Text('赛事暂时无法加载')),
+                  Center(
+                    child: Text(
+                      snapshot.error.toString(),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
                   Center(
                     child: TextButton(
                       onPressed: _refresh,
