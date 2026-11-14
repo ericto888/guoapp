@@ -426,6 +426,23 @@ func isJRS33IndexScriptURL(target *url.URL) bool {
 	return net.ParseIP(host) == nil && host == jrs33IndexScriptHost
 }
 
+func normalizeJRS33GeneratedFragment(fragment string) string {
+	// JRKAN builds href values with JavaScript concatenation inside document.write.
+	// After resolving getPlayUrl(), collapse the remaining expression into a real
+	// HTML attribute so the native parser can expose the source's channel choices.
+	generatedHrefRE := regexp.MustCompile(`(?i)(href\s*=\s*["'])\s*'\s*\+\s*(https?://[^'"\s]+)\s*\+\s*'\s*(["'])`)
+	return generatedHrefRE.ReplaceAllString(fragment, `$1$2$3`)
+}
+
+func isKnownJRS33PlayerHost(host string) bool {
+	switch strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), ".")) {
+	case "play.sportsteam368.com", "play.jgdhds.com", "play.sportsteam7777.com":
+		return true
+	default:
+		return false
+	}
+}
+
 func (p *jrs33Provider) expandIndexScript(ctx context.Context, home, baseURL string) (string, error) {
 	m := jrs33IndexScriptRE.FindStringSubmatch(home)
 	if len(m) < 2 { return home, nil }
@@ -458,6 +475,7 @@ func (p *jrs33Provider) expandIndexScript(ctx context.Context, home, baseURL str
 		})
 		fragment = strings.ReplaceAll(fragment, `\'`, `'`)
 		fragment = strings.ReplaceAll(fragment, `\\`, `\`)
+		fragment = normalizeJRS33GeneratedFragment(fragment)
 		output.WriteString(fragment)
 		output.WriteByte('\n')
 	}
@@ -749,7 +767,15 @@ func resolveJRS33ChannelLink(baseURL, raw string) string {
 	ref, err := url.Parse(raw)
 	if err != nil { return "" }
 	resolved := base.ResolveReference(ref)
-	if resolved.Scheme != "https" || resolved.Host == "" || resolved.User != nil {
+	if resolved.Host == "" || resolved.User != nil {
+		return ""
+	}
+	if resolved.Scheme == "http" && isKnownJRS33PlayerHost(resolved.Hostname()) {
+		// The live homepage currently publishes these player endpoints as HTTP.
+		// Upgrade only the exact observed hosts; never downgrade or fetch HTTP.
+		resolved.Scheme = "https"
+	}
+	if resolved.Scheme != "https" {
 		return ""
 	}
 	if ip := net.ParseIP(resolved.Hostname()); ip != nil {
