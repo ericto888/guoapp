@@ -702,6 +702,10 @@ class NativeRepository extends AppRepository {
       'action': 'footballMatches',
       'force': force,
     });
+    if (result['configured'] == false) {
+      final warning = result['warning'] as String? ?? 'JRS33 赛事源暂时不可用';
+      throw AppFailure(warning);
+    }
     return [
       for (final row in result['items'] as List? ?? const [])
         FootballMatch.fromJson(Map<String, dynamic>.from(row as Map)),
