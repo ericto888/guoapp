@@ -147,9 +147,11 @@ func (p *jrs33Provider) matchChannels(ctx context.Context, matchID string) ([]jr
 		if err != nil { return nil, fmt.Errorf("读取赛事详情失败: %w", err) }
 		if isJRS33ChallengePage(body) { return nil, errors.New("赛事详情触发 Cloudflare/反爬验证") }
 		channels := parseJRS33Channels(body, finalURL)
-		p.mu.Lock()
-		p.detailChannels[matchID] = append([]jrs33LiveChannel(nil), channels...)
-		p.mu.Unlock()
+		if len(channels) > 0 {
+			p.mu.Lock()
+			p.detailChannels[matchID] = append([]jrs33LiveChannel(nil), channels...)
+			p.mu.Unlock()
+		}
 		return channels, nil
 	}
 	p.mu.Unlock()
