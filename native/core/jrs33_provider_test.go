@@ -1,7 +1,9 @@
 package core
 
 import (
+	"context"
 	"errors"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -297,4 +299,69 @@ func TestJRS33StatusCellIsParsedIndependently(t *testing.T) {
 				tc.statusText, matches[0].Status, matches[0].MatchTime, tc.wantStatus, tc.wantMinute)
 		}
 	}
+}
+
+
+// TestFetchLiveJRS33SourceSnapshot is a temporary network diagnostic. It is
+// removed after one CI run; it does not build an app or call third-party score APIs.
+func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	client := &http.Client{Timeout: 12 * time.Second}
+	provider := &jrs33Provider{
+		domains: &jrs33DomainManager{client: client},
+		detailChannels: make(map[string][]jrs33LiveChannel),
+	}
+	bases := []string{
+		"https://www.jrkan.com",
+		"https://www.jrs945.com",
+		"https://www.jrs80.com",
+		"https://www.jrs04.com",
+		"https://www.jrs03.com",
+		"https://m.jrs33.com",
+		"https://www.jrskk.com",
+		"https://m.jrskk.com",
+		"https://m.jrs21.com",
+	}
+	found := false
+	for _, base := range bases {
+		matches, err := provider.fetchMatches(ctx, base)
+		if err != nil {
+			t.Logf("SOURCE %s ERROR %v", base, err)
+			continue
+		}
+		t.Logf("SOURCE %s MATCH_COUNT %d", base, len(matches))
+		if len(matches) == 0 { continue }
+		found = true
+		provider.cached = matches
+		provider.activeBaseURL = base
+		for i, match := range matches {
+			if i >= 8 { break }
+			t.Logf("MATCH[%d] id=%q league=%q home=%q score=%v:%v away=%q status=%q minute=%q evidence=%q detail=%q",
+				i, match.ID, match.League, match.HomeTeam, match.HomeScore, match.AwayScore,
+				match.AwayTeam, match.Status, match.MatchTime, match.StatusEvidence, match.DetailURL)
+		}
+		for _, match := range matches {
+			if match.DetailURL == "" { continue }
+			channels, channelErr := provider.matchChannels(ctx, match.ID)
+			if channelErr != nil {
+				t.Logf("CHANNELS match=%q ERROR %v", match.ID, channelErr)
+				continue
+			}
+			t.Logf("CHANNELS match=%q count=%d", match.ID, len(channels))
+			for i, channel := range channels {
+				if i >= 4 { break }
+				t.Logf("CHANNEL[%d] name=%q url=%q", i, channel.Name, channel.URL)
+				mediaURL, headers, resolveErr := provider.resolveChannel(ctx, channel.URL)
+				if resolveErr != nil {
+					t.Logf("RESOLVE[%d] ERROR %v", i, resolveErr)
+				} else {
+					t.Logf("RESOLVE[%d] media=%q headers=%v", i, mediaURL, headers)
+				}
+			}
+			break
+		}
+		break
+	}
+	if !found { t.Log("NO_LIVE_JRS33_SOURCE_REACHED") }
 }
