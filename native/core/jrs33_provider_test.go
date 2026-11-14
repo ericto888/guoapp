@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -123,5 +124,21 @@ func TestParseJRS33TableLayout(t *testing.T) {
 	}
 	if matches[1].League != "NBA" || matches[1].DetailURL != "https://www.jrkan.com/match/nba-1.html" {
 		t.Fatalf("unexpected NBA fixture: %#v", matches[1])
+	}
+}
+
+
+func TestJRS33DataStatusDistinguishesEmptyAndParserFailure(t *testing.T) {
+	if got := jrs33DataStatus(nil, nil); got != "empty" {
+		t.Fatalf("empty status = %q, want empty", got)
+	}
+	if got := jrs33DataStatus([]jrs33Match{{ID: "1"}}, nil); got != "ok" {
+		t.Fatalf("success status = %q, want ok", got)
+	}
+	if got := jrs33DataStatus(nil, errors.New("JRS33 动态赛事脚本已展开，但未解析出任何赛事行")); got != "script_parse_failed" {
+		t.Fatalf("parser status = %q, want script_parse_failed", got)
+	}
+	if got := jrs33DataStatus(nil, errors.New("JRS33 返回 Cloudflare/反爬验证页")); got != "challenge" {
+		t.Fatalf("challenge status = %q, want challenge", got)
 	}
 }
