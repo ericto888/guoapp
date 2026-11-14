@@ -378,6 +378,12 @@ void main() {
     test('a round trip restores records and settings', () async {
       final store = await _open({'plugin_secret': 'stays-local'});
       await store.toggleFavorite(first);
+      final reservation = SeasonReservation(
+        drama: drama('season-2', title: '旧资料第二季'),
+        season: 2,
+        reservedAt: DateTime(2026, 11, 1).millisecondsSinceEpoch,
+      );
+      await store.toggleSeasonReservation(reservation);
       await store.saveWatch(watching(first, episode: 2, position: 11));
       await store.setThemeMode('dark');
       await store.setFollowSystemColor(false);
@@ -390,6 +396,7 @@ void main() {
       expect(backup, isNot(contains('stays-local')));
 
       await store.toggleFavorite(first);
+      await store.toggleSeasonReservation(reservation);
       await store.clearHistory();
       await store.setThemeMode('light');
       await store.setFollowSystemColor(true);
@@ -402,6 +409,7 @@ void main() {
 
       final restarted = await restartStore(store);
       expect(restarted.favorites.single.id, first.id);
+      expect(restarted.seasonReservations.single.id, reservation.id);
       expect(restarted.watched(first.id)?.position, 11);
       expect(restarted.themeMode, 'dark');
       expect(restarted.followSystemColor, isFalse);

@@ -46,6 +46,7 @@ class _FollowPageState extends State<FollowPage> {
   final _editButton = FocusNode();
   final _entered = <Object>{};
   var _source = '';
+  var _showReservations = false;
   Set<String>? _selection;
 
   @override
@@ -137,6 +138,24 @@ class _FollowPageState extends State<FollowPage> {
     if (!mounted) return;
     setState(() => _selection = null);
     _keepFocus(widget.entryFocus);
+  }
+
+  Future<void> _startFollowingReservation(
+    SeasonReservation reservation,
+    Drama drama,
+  ) async {
+    if (!widget.store.isFavorite(drama.id)) {
+      await saveSetting(context, () => widget.store.toggleFavorite(drama));
+    }
+    if (!mounted) return;
+    await saveSetting(
+      context,
+      () => widget.store.toggleSeasonReservation(reservation),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已加入追更中')),
+    );
   }
 
   @override
@@ -303,8 +322,8 @@ class _FollowPageState extends State<FollowPage> {
               child: selection == null
                   ? PageHeader(
                       key: const ValueKey(false),
-                      title: '追剧',
-                      actions: [_editButtonFor(view, icon: false)],
+                      title: '我的追剧',
+                      actions: _showReservations ? [] : [_editButtonFor(view, icon: false)],
                     )
                   : PageHeader(
                       key: const ValueKey(true),
@@ -315,11 +334,12 @@ class _FollowPageState extends State<FollowPage> {
                       ],
                     ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: _search(),
-            ),
-            ?_sources(view, inset: 16, scroll: true),
+            if (!_showReservations)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: _search(),
+              ),
+            if (!_showReservations) ?_sources(view, inset: 16, scroll: true),
           ],
         ),
       ),
@@ -353,15 +373,16 @@ class _FollowPageState extends State<FollowPage> {
                           child: Row(
                             spacing: 8,
                             children: [
-                              Expanded(child: _title('追剧', 28)),
-                              SizedBox(
-                                width: (constraints.maxWidth - 400).clamp(
-                                  160.0,
-                                  280.0,
+                              Expanded(child: _title('我的追剧', 28)),
+                              if (!_showReservations)
+                                SizedBox(
+                                  width: (constraints.maxWidth - 400).clamp(
+                                    160.0,
+                                    280.0,
+                                  ),
+                                  child: _search(),
                                 ),
-                                child: _search(),
-                              ),
-                              _editButtonFor(view),
+                              if (!_showReservations) _editButtonFor(view),
                             ],
                           ),
                         )
@@ -387,7 +408,7 @@ class _FollowPageState extends State<FollowPage> {
               ),
             ),
           ),
-          ?_sources(view, inset: 24),
+          if (!_showReservations) ?_sources(view, inset: 24),
         ],
       ),
     ),
@@ -416,7 +437,9 @@ class _FollowPageState extends State<FollowPage> {
           inset: televisionInset,
           top: 14,
           header: [
-            if (view.follows.isNotEmpty || view.selection != null)
+            if ((view.follows.isNotEmpty && !_showReservations) ||
+                widget.store.seasonReservations.isNotEmpty ||
+                view.selection != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(
                   televisionInset,
@@ -432,16 +455,17 @@ class _FollowPageState extends State<FollowPage> {
                       spacing: 12,
                       children: view.selection == null
                           ? [
-                              SizedBox(
-                                width: 260,
-                                child: _search(
-                                  focusNode: view.shown.isEmpty
-                                      ? widget.entryFocus
-                                      : null,
+                              if (!_showReservations)
+                                SizedBox(
+                                  width: 260,
+                                  child: _search(
+                                    focusNode: view.shown.isEmpty
+                                        ? widget.entryFocus
+                                        : null,
+                                  ),
                                 ),
-                              ),
                               const Spacer(),
-                              _editButtonFor(view),
+                              if (!_showReservations) _editButtonFor(view),
                             ]
                           : [
                               Expanded(
@@ -456,7 +480,8 @@ class _FollowPageState extends State<FollowPage> {
                   ),
                 ),
               ),
-            ?_sources(view, inset: televisionInset),
+            if (!_showReservations)
+              ?_sources(view, inset: televisionInset),
           ],
         ),
       ),
@@ -517,21 +542,54 @@ class _FollowPageState extends State<FollowPage> {
             padding: EdgeInsets.only(top: top),
             sliver: SliverList.list(children: header),
           ),
-          if (widget.store.seasonReservations.isNotEmpty)
-            SliverToBoxAdapter(
-              child: _SeasonReservationSwitcher(
-                store: widget.store,
-                onOpen: _open,
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(inset, 8, inset, 4),
+              child: SegmentedButton<bool>(
+                showSelectedIcon: false,
+                segments: [
+                  ButtonSegment<bool>(
+                    value: false,
+                    label: Text('追更中 ${widget.store.favorites.length}'),
+                  ),
+                  ButtonSegment<bool>(
+                    value: true,
+                    label: Text('预约中 ${widget.store.seasonReservations.length}'),
+                  ),
+                ],
+                selected: {_showReservations},
+                onSelectionChanged: (value) => setState(() {
+                  _showReservations = value.first;
+                  _selection = null;
+                }),
               ),
             ),
-          if (view.shown.isEmpty && widget.store.seasonReservations.isEmpty)
+          ),
+          if (_showReservations) ...[
+            if (widget.store.seasonReservations.isEmpty)
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: StatusView(
+                  title: '还没有预约',
+                  icon: Icons.notifications_none_rounded,
+                ),
+              )
+            else
+              SliverToBoxAdapter(
+                child: _SeasonReservationSwitcher(
+                  store: widget.store,
+                  onOpen: _open,
+                  onStartFollowing: _startFollowingReservation,
+                ),
+              ),
+          ] else if (view.shown.isEmpty)
             SliverFillRemaining(
               hasScrollBody: false,
               child: FadeSwitcher(
                 scale: true,
                 child: StatusView(
                   key: ValueKey(view.follows.isEmpty),
-                  title: view.follows.isEmpty ? '还没有追剧' : '没有匹配的追剧',
+                  title: view.follows.isEmpty ? '还没有追更' : '没有匹配的追剧',
                   icon: view.follows.isEmpty
                       ? Icons.bookmark_border_rounded
                       : Icons.search_off_rounded,
@@ -690,10 +748,13 @@ class _SeasonReservationSwitcher extends StatefulWidget {
   const _SeasonReservationSwitcher({
     required this.store,
     required this.onOpen,
+    required this.onStartFollowing,
   });
 
   final LocalStore store;
   final ValueChanged<Drama> onOpen;
+  final Future<void> Function(SeasonReservation reservation, Drama drama)
+  onStartFollowing;
 
   @override
   State<_SeasonReservationSwitcher> createState() =>
@@ -880,23 +941,47 @@ class _SeasonReservationSwitcherState
                     crossAxisCount: columns,
                     crossAxisSpacing: gap,
                     mainAxisSpacing: 14,
-                    mainAxisExtent: DramaTile.extentFor(context, tileWidth),
+                    mainAxisExtent:
+                        DramaTile.extentFor(context, tileWidth) +
+                        (_showLive ? 42 : 0),
                   ),
                   itemBuilder: (context, index) {
                     final (reservation, season) = shown[index];
-                    return DramaTile(
-                      key: ValueKey('reservation-${reservation.id}'),
-                      drama: season.drama,
-                      subtitle: _dateLabel(season),
-                      onTap: () => widget.onOpen(season.drama),
-                      onMore: () async {
-                        await widget.store.toggleSeasonReservation(reservation);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('已取消季预约')),
-                          );
-                        }
-                      },
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: DramaTile(
+                            key: ValueKey('reservation-${reservation.id}'),
+                            drama: season.drama,
+                            subtitle: _dateLabel(season),
+                            onTap: () => widget.onOpen(season.drama),
+                            onMore: () async {
+                              await widget.store.toggleSeasonReservation(reservation);
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('已取消季预约')),
+                                );
+                              }
+                            },
+                          ),
+                        ),
+                        if (_showLive)
+                          SizedBox(
+                            height: 38,
+                            child: TextButton.icon(
+                              onPressed: () => widget.onStartFollowing(
+                                reservation,
+                                season.drama,
+                              ),
+                              icon: const Icon(
+                                Icons.playlist_add_check_rounded,
+                                size: 17,
+                              ),
+                              label: const Text('开始追更'),
+                            ),
+                          ),
+                      ],
                     );
                   },
                 );

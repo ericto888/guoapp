@@ -1021,6 +1021,7 @@ class LocalStore extends ChangeNotifier {
       libraries[profile.id] = {
         'history': _list(await read('history')),
         'favorites': favorites,
+        'seasonReservations': _map(await read('seasonReservations')),
         'followStates': _map(await read('followStates'))
           ..removeWhere((id, _) => !ids.contains(id)),
         'source': settings['source'] is String ? settings['source'] : '',
@@ -1096,6 +1097,21 @@ class LocalStore extends ChangeNotifier {
       for (final row in favorites) {
         Drama.fromJson(Map<String, dynamic>.from(row as Map));
       }
+      final reservations = library['seasonReservations'] as Map? ?? {};
+      if (reservations.length > 500) {
+        throw const FormatException('预约记录过多');
+      }
+      for (final entry in reservations.entries) {
+        if (entry.key is! String || entry.value is! Map) {
+          throw const FormatException('预约记录无效');
+        }
+        final reservation = SeasonReservation.fromJson(
+          Map<String, dynamic>.from(entry.value as Map),
+        );
+        if (entry.key != reservation.id) {
+          throw const FormatException('预约记录无效');
+        }
+      }
       final states = library['followStates'] as Map? ?? {};
       final favoriteIds = favorites.map((row) => (row as Map)['id']).toSet();
       if (states.length > 20000 ||
@@ -1153,6 +1169,8 @@ class LocalStore extends ChangeNotifier {
       contents.addAll({
         _userFile(profile.id, 'history'): library['history'],
         _userFile(profile.id, 'favorites'): library['favorites'],
+        _userFile(profile.id, 'seasonReservations'):
+            library['seasonReservations'] ?? {},
         _userFile(profile.id, 'followStates'): library['followStates'] ?? {},
         _userFile(profile.id, 'followChecks'): const {},
         _userFile(profile.id, 'settings'): {
