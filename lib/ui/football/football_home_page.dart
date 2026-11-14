@@ -272,6 +272,15 @@ class _FootballHomePageState extends State<FootballHomePage> {
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
+                            if (match.status == 'unknown' &&
+                                match.statusEvidence.isNotEmpty)
+                              Tooltip(
+                                message: match.statusEvidence,
+                                child: const Padding(
+                                  padding: EdgeInsets.only(left: 4),
+                                  child: Icon(Icons.info_outline, size: 16),
+                                ),
+                              ),
                           ],
                         ),
                         const SizedBox(height: 12),
