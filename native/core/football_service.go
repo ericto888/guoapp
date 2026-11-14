@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 )
@@ -69,4 +70,13 @@ func (engine *nativeEngine) footballMatchChannels(ctx context.Context, matchID s
 	channels, err := engine.jrs33Provider.matchChannels(ctx, matchID)
 	if err != nil { return nil, err }
 	return map[string]any{"items": channels}, nil
+}
+
+// footballResolveChannel resolves a selected JRS33 channel page to a direct media URL.
+func (engine *nativeEngine) footballResolveChannel(ctx context.Context, channelURL string) (any, error) {
+	if err := ctx.Err(); err != nil { return nil, err }
+	if engine.jrs33Provider == nil { return nil, errors.New("JRS33 数据服务尚未初始化") }
+	mediaURL, headers, err := engine.jrs33Provider.resolveChannel(ctx, channelURL)
+	if err != nil { return nil, err }
+	return map[string]any{"url": mediaURL, "headers": headers}, nil
 }
