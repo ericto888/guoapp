@@ -89,3 +89,39 @@ func TestParseJRS33Kickoff(t *testing.T) {
 		t.Fatalf("kickoff %q is not RFC3339: %v", got, err)
 	}
 }
+
+
+func TestParseJRS33HomeKeepsAllSportsAndWomenLeagues(t *testing.T) {
+	html := `<html><body>
+<div class="d-touch"><span class="name">NBA</span><span class="name">湖人</span><span class="name">勇士</span><span class="lab_time">11-14 09:30 进行中</span></div>
+<div class="d-touch"><span class="name">澳女联</span><span class="name">墨尔本城女足</span><span class="name">悉尼女足</span><span class="lab_time">11-14 16:00 进行中</span></div>
+</body></html>`
+	matches := parseJRS33Home(html, "https://www.jrkan.com/")
+	if len(matches) != 2 {
+		t.Fatalf("got %d matches, want NBA and women's league fixtures", len(matches))
+	}
+	if matches[0].League != "NBA" || matches[1].League != "澳女联" {
+		t.Fatalf("unexpected leagues: %q, %q", matches[0].League, matches[1].League)
+	}
+}
+
+func TestParseJRS33TableLayout(t *testing.T) {
+	html := `<html><body><table>
+<tr><th>赛事</th><th>时间状态</th><th>主队</th><th>比分</th><th>客队</th><th>频道</th></tr>
+<tr><td>澳女联</td><td>11-14 16:00 进行中</td><td>墨尔本城女足</td><td>1:0</td><td>悉尼女足</td><td><a href="https://play.example.com/live/1">直播①</a><a class="me" href="/match/women-1.html">详情</a></td></tr>
+<tr><td>NBA</td><td>11-14 09:30 进行中</td><td>湖人</td><td>88:82</td><td>勇士</td><td><a class="me" href="/match/nba-1.html">详情</a></td></tr>
+</table></body></html>`
+	matches := parseJRS33Home(html, "https://www.jrkan.com/")
+	if len(matches) != 2 {
+		t.Fatalf("got %d matches, want 2", len(matches))
+	}
+	if matches[0].League != "澳女联" || matches[0].HomeTeam != "墨尔本城女足" || matches[0].AwayTeam != "悉尼女足" {
+		t.Fatalf("unexpected women's fixture: %#v", matches[0])
+	}
+	if matches[0].HomeScore == nil || matches[0].AwayScore == nil || *matches[0].HomeScore != 1 || *matches[0].AwayScore != 0 {
+		t.Fatalf("unexpected women's score: %#v %#v", matches[0].HomeScore, matches[0].AwayScore)
+	}
+	if matches[1].League != "NBA" || matches[1].DetailURL != "https://www.jrkan.com/match/nba-1.html" {
+		t.Fatalf("unexpected NBA fixture: %#v", matches[1])
+	}
+}
