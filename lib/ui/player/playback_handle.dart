@@ -23,6 +23,8 @@ class PlaybackHandle {
     double position = 0,
     bool autoplay = true,
     bool preopen = true,
+    PlaybackPlan? initialPlan,
+    Future<PlaybackPlan> Function()? directResolver,
   }) {
     final main = _respawnPlayer();
     final standby = preopen ? _respawnPlayer() : null;
@@ -36,6 +38,8 @@ class PlaybackHandle {
       spawnStandby: preopen ? _respawnPlayer : null,
       respawn: _respawnPlayer,
       onRetired: _retireVideo,
+      initialPlan: initialPlan,
+      directResolver: directResolver,
       index: index,
       position: position,
       autoplay: autoplay,
