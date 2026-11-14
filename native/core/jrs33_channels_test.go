@@ -97,3 +97,55 @@ func TestParseJRS33MediaURLFromBase64PlayerConfig(t *testing.T) {
 		t.Fatalf("decoded media URL = %q", got)
 	}
 }
+
+func TestParseJRS33HomeDoesNotTreatBFTitleAsScore(t *testing.T) {
+	// This mirrors the current JRKAN row shape: title="2" appears on both
+	// .bf nodes, but neither node contains a visible score.
+	page := `<ul>
+<li class="d-touch">
+  <span class="name">U17亚洲杯</span>
+  <li class="lab_time">11-14 16:00</li>
+  <span class="name lab_team_home">伊拉克U17<em class="bf" title="2"></em></span>
+  <span class="name lab_team_away">中国台北U17<em class="bf" title="2"></em></span>
+  <div class="sub_status"><em class="spin_ant"></em></div>
+  <a class="item ok" href="https://play.example.net/live/1">直播①</a>
+</li>
+</ul>`
+	matches := parseJRS33Home(page, "https://www.jrkan.com/")
+	if len(matches) != 1 {
+		t.Fatalf("parsed matches = %d, want 1", len(matches))
+	}
+	match := matches[0]
+	if match.HomeScore != nil || match.AwayScore != nil {
+		t.Fatalf("placeholder title was parsed as score %v:%v; want unknown score", match.HomeScore, match.AwayScore)
+	}
+	if match.MatchTime != "" {
+		t.Fatalf("kickoff time was incorrectly parsed as elapsed match time: %q", match.MatchTime)
+	}
+	if match.Status != "unknown" {
+		t.Fatalf("empty spinner/status markup must remain unknown, got %q", match.Status)
+	}
+}
+
+func TestParseJRS33CurrentMinuteFromStatusNode(t *testing.T) {
+	page := `<ul>
+<li class="d-touch">
+  <span class="name">英超</span>
+  <li class="lab_time">11-14 16:00</li>
+  <span class="name lab_team_home">主队<em class="bf">1</em></span>
+  <span class="name lab_team_away">客队<em class="bf">0</em></span>
+  <div class="sub_status">65'<em class="spin_ant"></em></div>
+</li>
+</ul>`
+	matches := parseJRS33Home(page, "https://www.jrkan.com/")
+	if len(matches) != 1 {
+		t.Fatalf("parsed matches = %d, want 1", len(matches))
+	}
+	if matches[0].HomeScore == nil || *matches[0].HomeScore != 1 ||
+		matches[0].AwayScore == nil || *matches[0].AwayScore != 0 {
+		t.Fatalf("visible scores not parsed: %v:%v", matches[0].HomeScore, matches[0].AwayScore)
+	}
+	if matches[0].Status != "live" || matches[0].MatchTime != "65′" {
+		t.Fatalf("status/time = %q/%q, want live/65′", matches[0].Status, matches[0].MatchTime)
+	}
+}
