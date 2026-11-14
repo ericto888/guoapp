@@ -37,6 +37,7 @@ env:
 
 jobs:
   build-ios:
+    if: github.event_name == 'workflow_dispatch'
     name: Build ${{ matrix.edition }} unsigned IPA
     runs-on: macos-latest
     timeout-minutes: 90
