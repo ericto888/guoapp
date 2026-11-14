@@ -39,7 +39,9 @@ class _FootballHomePageState extends State<FootballHomePage> {
   void _loadChannels(String matchId, {bool retry = false}) {
     if (!retry && _channelLoads.containsKey(matchId)) return;
     setState(() {
-      _channelLoads[matchId] = AppScope.of(context).repository.footballMatchChannels(matchId);
+      _channelLoads[matchId] = AppScope.of(
+        context,
+      ).repository.footballMatchChannels(matchId);
     });
   }
 
@@ -51,7 +53,9 @@ class _FootballHomePageState extends State<FootballHomePage> {
       subtitle: const Text('打开第三方直播入口'),
       onTap: () async {
         final uri = Uri.tryParse(channel.url);
-        if (uri == null || !uri.isScheme('https') || !await canLaunchUrl(uri)) {
+        if (uri == null ||
+            !uri.isScheme('https') ||
+            !await canLaunchUrl(uri)) {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('直播入口暂时无法打开')),
@@ -90,8 +94,11 @@ class _FootballHomePageState extends State<FootballHomePage> {
               return ListView(
                 children: [
                   const SizedBox(height: 140),
-                  Icon(Icons.cloud_off_outlined,
-                      size: 42, color: theme.colorScheme.onSurfaceVariant),
+                  Icon(
+                    Icons.cloud_off_outlined,
+                    size: 42,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                   const SizedBox(height: 12),
                   const Center(child: Text('赛事暂时无法加载')),
                   Center(
@@ -109,8 +116,11 @@ class _FootballHomePageState extends State<FootballHomePage> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 children: [
                   const SizedBox(height: 100),
-                  Icon(Icons.sports_soccer,
-                      size: 56, color: theme.colorScheme.primary),
+                  Icon(
+                    Icons.sports_soccer,
+                    size: 56,
+                    color: theme.colorScheme.primary,
+                  ),
                   const SizedBox(height: 18),
                   const Center(
                     child: Text('足球赛事中心已就绪'),
@@ -140,14 +150,18 @@ class _FootballHomePageState extends State<FootballHomePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Text(match.league,
-                            style: theme.textTheme.labelMedium),
+                        Text(
+                          match.league,
+                          style: theme.textTheme.labelMedium,
+                        ),
                         const SizedBox(height: 12),
                         Row(
                           children: [
                             Expanded(
-                              child: Text(match.homeTeam,
-                                  textAlign: TextAlign.center),
+                              child: Text(
+                                match.homeTeam,
+                                textAlign: TextAlign.center,
+                              ),
                             ),
                             Text(
                               match.homeScore == null || match.awayScore == null
@@ -156,8 +170,10 @@ class _FootballHomePageState extends State<FootballHomePage> {
                               style: theme.textTheme.titleLarge,
                             ),
                             Expanded(
-                              child: Text(match.awayTeam,
-                                  textAlign: TextAlign.center),
+                              child: Text(
+                                match.awayTeam,
+                                textAlign: TextAlign.center,
+                              ),
                             ),
                           ],
                         ),
@@ -167,7 +183,8 @@ class _FootballHomePageState extends State<FootballHomePage> {
                           textAlign: TextAlign.center,
                           style: theme.textTheme.bodySmall,
                         ),
-                        if (match.detailUrl.isNotEmpty || match.channels.isNotEmpty) ...[
+                        if (match.detailUrl.isNotEmpty ||
+                            match.channels.isNotEmpty) ...[
                           const SizedBox(height: 8),
                           ExpansionTile(
                             tilePadding: EdgeInsets.zero,
@@ -190,20 +207,28 @@ class _FootballHomePageState extends State<FootballHomePage> {
                                 FutureBuilder<List<FootballLiveChannel>>(
                                   future: _channelLoads[match.id],
                                   builder: (context, channelSnapshot) {
-                                    if (channelSnapshot.connectionState == ConnectionState.waiting) {
+                                    if (channelSnapshot.connectionState ==
+                                        ConnectionState.waiting) {
                                       return const Padding(
                                         padding: EdgeInsets.all(16),
-                                        child: Center(child: CircularProgressIndicator()),
+                                        child: Center(
+                                          child: CircularProgressIndicator(),
+                                        ),
                                       );
                                     }
                                     if (channelSnapshot.hasError) {
                                       return TextButton.icon(
-                                        onPressed: () => _loadChannels(match.id, retry: true),
+                                        onPressed: () => _loadChannels(
+                                          match.id,
+                                          retry: true,
+                                        ),
                                         icon: const Icon(Icons.refresh),
                                         label: const Text('频道加载失败，点击重试'),
                                       );
                                     }
-                                    final channels = channelSnapshot.data ?? const <FootballLiveChannel>[];
+                                    final channels =
+                                        channelSnapshot.data ??
+                                        const <FootballLiveChannel>[];
                                     if (channels.isEmpty) {
                                       return TextButton.icon(
                                         onPressed: () => _loadChannels(match.id, retry: true),
@@ -212,7 +237,10 @@ class _FootballHomePageState extends State<FootballHomePage> {
                                       );
                                     }
                                     return Column(
-                                      children: [for (final channel in channels) _channelTile(context, channel)],
+                                      children: [
+                                        for (final channel in channels)
+                                          _channelTile(context, channel),
+                                      ],
                                     );
                                   },
                                 ),
