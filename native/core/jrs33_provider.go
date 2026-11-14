@@ -397,11 +397,12 @@ func parseJRS33Kickoff(value string) string {
 
 func parseJRS33Status(value string) string {
 	switch {
-	case strings.Contains(value, "中场"), strings.Contains(value, "半场"): return "halftime"
-	case strings.Contains(value, "进行中"), strings.Contains(value, "直播"), strings.Contains(value, "上半场"), strings.Contains(value, "下半场"): return "live"
+	case strings.Contains(value, "中场"), strings.Contains(value, "半场休息"): return "halftime"
+	case strings.Contains(value, "进行中"), strings.Contains(value, "直播中"), strings.Contains(value, "上半场"), strings.Contains(value, "下半场"): return "live"
 	case strings.Contains(value, "完场"), strings.Contains(value, "已结束"), strings.Contains(value, "全场"): return "finished"
 	case strings.Contains(value, "延期"), strings.Contains(value, "推迟"): return "postponed"
 	case strings.Contains(value, "取消"): return "cancelled"
+	case strings.Contains(value, "未开赛"), strings.Contains(value, "赛前"): return "scheduled"
 	default: return "scheduled"
 	}
 }
