@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -86,7 +88,7 @@ class _FollowPageState extends State<FollowPage> {
     if (state?.hasUpdates ?? false) {
       saveSetting(context, () => widget.store.markUpdatesRead(drama.id));
     }
-    for (final notice in state?.seriesSeasons.values ?? const <SeriesSeasonNotice>[]) {
+    for (final notice in state?.seriesSeasons.values ?? const []) {
       if (!notice.read) {
         unawaited(
           widget.store.markSeriesSeasonRead(drama.id, notice.id),
