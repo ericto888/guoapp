@@ -709,8 +709,7 @@ class _SeasonReservationSwitcherState
   void didUpdateWidget(covariant _SeasonReservationSwitcher oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.store != widget.store ||
-        _key(oldWidget.store.seasonReservations) !=
-            _key(widget.store.seasonReservations)) {
+        _key(widget.store.seasonReservations) != _signature) {
       _refresh();
     }
   }
