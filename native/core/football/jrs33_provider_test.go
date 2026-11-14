@@ -15,6 +15,7 @@ func TestParseJRS33Home(t *testing.T) {
   <span class="lab_time">11-14 20:30 未开赛</span>
   <span class="score">0:0</span>
   <a class="me" href="/match/abc123.html">详情</a>
+  <a href="https://play.sportsteam356.com/play/steam826532.html">直播①</a>
 </div>
 </body></html>`
 	matches := parseJRS33Home(html, "https://www.jrkan.com/")
@@ -26,6 +27,7 @@ func TestParseJRS33Home(t *testing.T) {
 	if got.ID != "jrs33:match/abc123.html" { t.Fatalf("unexpected id: %q", got.ID) }
 	if got.DetailURL != "https://www.jrkan.com/match/abc123.html" { t.Fatalf("unexpected detail URL: %q", got.DetailURL) }
 	if got.Status != "scheduled" { t.Fatalf("unexpected status: %q", got.Status) }
+	if len(got.Channels) != 1 || got.Channels[0].URL != "https://play.sportsteam356.com/play/steam826532.html" { t.Fatalf("unexpected homepage channels: %#v", got.Channels) }
 	if got.HomeScore == nil || got.AwayScore == nil || *got.HomeScore != 0 || *got.AwayScore != 0 {
 		t.Fatalf("unexpected score: %#v %#v", got.HomeScore, got.AwayScore)
 	}
