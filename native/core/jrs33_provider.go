@@ -794,36 +794,36 @@ func parseJRS33RowStatus(row *xhtml.Node, timeText string) (string, string) {
 			strings.Contains(class, "lab_time") ||
 			strings.Contains(class, "time_status") ||
 			strings.Contains(class, "match_time")
-		if isStatusNode {
-			value := cleanJRS33Text(jrs33NodeText(n))
-			nodeStatus := parseJRS33Status(value)
-			nodeMinute := parseJRS33MatchTime(value)
-			if nodeStatus != "unknown" {
-				status = nodeStatus
-			}
-			if nodeMinute != "" {
-				minute = nodeMinute
-			}
-			if status != "unknown" {
-				return status, minute
-			}
+		if !isStatusNode {
+			// Do not interpret arbitrary title attributes as match time. The real
+			// JRKAN feed uses title="2" on .bf score placeholders; that is not 2'.
+			continue
+		}
+		value := cleanJRS33Text(jrs33NodeText(n))
+		nodeStatus := parseJRS33Status(value)
+		nodeMinute := parseJRS33MatchTime(value)
+		if nodeStatus != "unknown" {
+			status = nodeStatus
+		}
+		if nodeMinute != "" {
+			minute = nodeMinute
 		}
 		for _, key := range []string{"data-status", "data-time", "data-minute", "data-period", "aria-label", "title"} {
-			value := jrs33Attr(n, key)
-			if value == "" {
+			attrValue := jrs33Attr(n, key)
+			if attrValue == "" {
 				continue
 			}
-			attrStatus := parseJRS33Status(value)
-			attrMinute := parseJRS33MatchTime(value)
+			attrStatus := parseJRS33Status(attrValue)
+			attrMinute := parseJRS33MatchTime(attrValue)
 			if attrStatus != "unknown" {
 				status = attrStatus
 			}
 			if attrMinute != "" {
 				minute = attrMinute
 			}
-			if status != "unknown" {
-				return status, minute
-			}
+		}
+		if status != "unknown" {
+			return status, minute
 		}
 	}
 	rowText := jrs33RowStatusText(row, timeText)
