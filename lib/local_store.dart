@@ -38,6 +38,7 @@ const _backupFlags = {
   'televisionKeyboard',
   'blurCoversButton',
   'blurCoversOnLaunch',
+  'showFootballOnHome',
 };
 const _blocked = '本地用户配置损坏，已锁定访问。原始记录已保留，请重新读取或从备份恢复。';
 
@@ -435,6 +436,9 @@ class LocalStore extends ChangeNotifier {
   /// 发现页站源按钮左边的眼睛按钮；关闭后不显示该按钮。
   bool get blurCoversButton => _flag('blurCoversButton', false);
 
+  /// 在发现首页内容列表底部显示足球赛事预览。
+  bool get showFootballOnHome => _flag('showFootballOnHome', false);
+
   /// 开屏自动模糊封面；未开启按钮时没有入口恢复，因此一并要求按钮开启。
   bool get blurCoversOnLaunch =>
       blurCoversButton && _flag('blurCoversOnLaunch', false);
@@ -575,6 +579,8 @@ class LocalStore extends ChangeNotifier {
       _setting('televisionKeyboard', value);
   Future<void> setBlurCoversButton(bool value) =>
       _setting('blurCoversButton', value);
+  Future<void> setShowFootballOnHome(bool value) =>
+      _setting('showFootballOnHome', value);
   Future<void> setBlurCoversOnLaunch(bool value) =>
       _setting('blurCoversOnLaunch', value);
   Future<void> setCheckUpdates(bool value) => _setting('checkUpdates', value);
