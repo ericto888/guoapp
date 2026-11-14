@@ -143,6 +143,42 @@ func TestJRS33StatusAndScore(t *testing.T) {
 	if !ok || home != 2 || away != 1 { t.Fatalf("score=%d:%d ok=%v", home, away, ok) }
 }
 
+func TestNormalizeJRS33GeneratedChannelLinks(t *testing.T) {
+	input := `<a class="item ok type1 me" href="' + http://play.sportsteam368.com/play/steam826545.html + '"><strong>直播①</strong></a>`
+	got := normalizeJRS33GeneratedFragment(input)
+	want := `<a class="item ok type1 me" href="http://play.sportsteam368.com/play/steam826545.html"><strong>直播①</strong></a>`
+	if got != want {
+		t.Fatalf("normalized fragment = %q, want %q", got, want)
+	}
+	if link := resolveJRS33ChannelLink("https://www.jrkan.com/", "http://play.sportsteam368.com/play/steam826545.html"); link != "https://play.sportsteam368.com/play/steam826545.html" {
+		t.Fatalf("known source channel URL was not safely upgraded: %q", link)
+	}
+	if link := resolveJRS33ChannelLink("https://www.jrkan.com/", "http://unknown.example/play/steam826545.html"); link != "" {
+		t.Fatalf("untrusted HTTP channel URL should be rejected: %q", link)
+	}
+}
+
+func TestParseJRS33HomepageGeneratedChannels(t *testing.T) {
+	html := `<ul class="item play d-touch">
+<li class="lab_events"><span class="name">澳女联</span></li>
+<li class="lab_time">11-14 12:00</li>
+<li class="lab_team_home"><strong class="name">墨尔本胜利女足</strong><em class="bf" title="2"></em></li>
+<li class="lab_vs active"><div class="sub_status"></div></li>
+<li class="lab_team_away"><strong class="name">阿德莱德联女足</strong><em class="bf" title="2"></em></li>
+<li class="lab_channel">
+<a class="item ok type1 me" href="http://play.sportsteam368.com/play/steam826545.html"><strong>直播①</strong></a>
+<a class="item ok type1 me" href="http://play.jgdhds.com/play/steam826545.html"><strong>直播②</strong></a>
+<a class="item ok type1 me" href="http://play.sportsteam7777.com/play/steam826545.html"><strong>直播③</strong></a>
+</li></ul>`
+	matches := parseJRS33Home(html, "https://www.jrkan.com/")
+	if len(matches) != 1 || len(matches[0].Channels) != 3 {
+		t.Fatalf("matches=%d channels=%d, want 1 match and 3 channels", len(matches), func() int { if len(matches) == 0 { return 0 }; return len(matches[0].Channels) }())
+	}
+	if matches[0].Channels[0].URL != "https://play.sportsteam368.com/play/steam826545.html" {
+		t.Fatalf("first channel URL=%q", matches[0].Channels[0].URL)
+	}
+}
+
 func TestResolveJRS33ChannelLink(t *testing.T) {
 	if got := resolveJRS33ChannelLink("https://www.jrkan.com/match/a.html", "/play/a.html"); got != "https://www.jrkan.com/play/a.html" {
 		t.Fatalf("relative channel URL = %q", got)
