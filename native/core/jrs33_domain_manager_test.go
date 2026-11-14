@@ -53,3 +53,25 @@ func TestUniqueJRS33CandidatesSortsAndDeduplicates(t *testing.T) {
 		t.Fatalf("uniqueJRS33Candidates() = %#v, want %#v", got, want)
 	}
 }
+
+func TestIsJRS33ChallengePage(t *testing.T) {
+	challengePages := []string{
+		`<html><title>Just a moment...</title><script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script></html>`,
+		`<div id="cf-chl-widget">Checking your browser before accessing</div>`,
+		`<html><body>Enable JavaScript and cookies to continue</body></html>`,
+	}
+	for _, page := range challengePages {
+		if !isJRS33ChallengePage(page) {
+			t.Errorf("expected challenge page to be rejected: %q", page)
+		}
+	}
+	ordinaryPages := []string{
+		`<html><body>JRSKAN直播 暂无赛事</body></html>`,
+		`<html><body>英超 阿森纳 - 切尔西</body></html>`,
+	}
+	for _, page := range ordinaryPages {
+		if isJRS33ChallengePage(page) {
+			t.Errorf("ordinary JRS33 page was incorrectly rejected: %q", page)
+		}
+	}
+}
