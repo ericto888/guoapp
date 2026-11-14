@@ -151,7 +151,12 @@ class DramaDetails extends ChangeNotifier {
     _notify();
   }
 
-  /// 按季号合并；已有的季保留原对象，只补新拿到的季。
+  /// 按季号合并：保留本次接口未返回的旧季；同一季以最新官方数据为准。
+  ///
+  /// 待上线季正式上线后，官方接口会更新集数、上线日期等字段。
+  /// 如果始终保留 previous，同一季就会一直停留在 episodes=0 的旧状态，
+  /// 预约提醒也无法可靠识别它已经上线。预约记录独立保存在 LocalStore，
+  /// 替换 DramaSeason 不会清除用户的预约。
   List<DramaSeason> _mergeSeasons(
     List<DramaSeason> previous,
     List<DramaSeason> fresh,
@@ -159,7 +164,7 @@ class DramaDetails extends ChangeNotifier {
     if (previous.isEmpty) return fresh;
     final byNumber = {for (final season in previous) season.number: season};
     for (final season in fresh) {
-      byNumber.putIfAbsent(season.number, () => season);
+      byNumber[season.number] = season;
     }
     final numbers = byNumber.keys.toList()..sort();
     return [for (final number in numbers) byNumber[number]!];
