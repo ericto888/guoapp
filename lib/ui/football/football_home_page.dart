@@ -176,7 +176,9 @@ class _FootballHomePageState extends State<FootballHomePage> {
             return ListView.separated(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(16),
-              itemCount: visibleMatches.isEmpty ? 2 : visibleMatches.length + 1,
+              itemCount: visibleMatches.isEmpty
+                  ? 2
+                  : visibleMatches.length + 1,
               separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
                 if (index == 0) {
@@ -184,13 +186,29 @@ class _FootballHomePageState extends State<FootballHomePage> {
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: [
-                        _filterChip('全部', _FootballMatchFilter.all, matches.length),
+                        _filterChip(
+                          '全部',
+                          _FootballMatchFilter.all,
+                          matches.length,
+                        ),
                         const SizedBox(width: 8),
-                        _filterChip('直播中', _FootballMatchFilter.live, liveCount),
+                        _filterChip(
+                          '直播中',
+                          _FootballMatchFilter.live,
+                          liveCount,
+                        ),
                         const SizedBox(width: 8),
-                        _filterChip('未开始', _FootballMatchFilter.upcoming, upcomingCount),
+                        _filterChip(
+                          '未开始',
+                          _FootballMatchFilter.upcoming,
+                          upcomingCount,
+                        ),
                         const SizedBox(width: 8),
-                        _filterChip('已结束', _FootballMatchFilter.finished, finishedCount),
+                        _filterChip(
+                          '已结束',
+                          _FootballMatchFilter.finished,
+                          finishedCount,
+                        ),
                       ],
                     ),
                   );
