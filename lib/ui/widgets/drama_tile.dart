@@ -24,7 +24,7 @@ class _PosterButton extends StatefulWidget {
   final Widget cover;
   final List<Widget> caption;
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final VoidCallback? onMore;
   final FocusNode? focusNode;
   final bool autofocus;
@@ -134,7 +134,7 @@ class DramaTile extends StatelessWidget {
     this.blurCover = false,
   });
   final Drama drama;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final String? heroScope;
   final bool showScore;
   final bool blurCover;
