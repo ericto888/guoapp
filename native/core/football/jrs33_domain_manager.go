@@ -147,6 +147,9 @@ func (manager *jrs33DomainManager) resolve(ctx context.Context) (jrs33ResolvedDo
 		{URL: "https://m.jrskk.com", Priority: 80},
 		{URL: "https://m.jrs21.com", Priority: 70},
 	}
+	for _, discovered := range manager.cache.Discovered {
+		candidates = append(candidates, jrs33DomainCandidate{URL: discovered, Priority: 95})
+	}
 	if config, err := manager.fetchRemoteConfig(ctx); err == nil {
 		candidates = append(candidates, config.Domains...)
 	}
