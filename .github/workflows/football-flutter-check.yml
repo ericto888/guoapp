@@ -31,6 +31,10 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: Temporary format diagnostics
+        run: |
+          dart format --output=write lib/core_bridge.dart lib/football_models.dart lib/playback_session.dart lib/ui/football lib/ui/player/playback_handle.dart lib/ui/player/player_page.dart lib/ui/player/landscape_player_page.dart lib/ui/player/portrait_player_page.dart lib/ui/mine/mine_page.dart lib/ui/explore/explore_page.dart
+          git diff -- lib/playback_session.dart
       - name: Check Dart formatting
         run: dart format --output=none --set-exit-if-changed lib/core_bridge.dart lib/football_models.dart lib/playback_session.dart lib/ui/football lib/ui/player/playback_handle.dart lib/ui/player/player_page.dart lib/ui/player/landscape_player_page.dart lib/ui/player/portrait_player_page.dart lib/ui/mine/mine_page.dart lib/ui/explore/explore_page.dart
       - name: Analyze football integration
