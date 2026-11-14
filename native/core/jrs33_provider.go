@@ -64,6 +64,7 @@ type jrs33Provider struct {
 	cached []jrs33Match
 	cachedAt time.Time
 	detailChannels map[string][]jrs33LiveChannel
+	activeBaseURL string
 }
 
 type jrs33MatchCache struct {
@@ -100,18 +101,19 @@ func (p *jrs33Provider) matches(ctx context.Context, force bool) ([]jrs33Match, 
 		}
 		return nil, "", err
 	}
-	matches, err := p.fetchMatches(ctx, resolved.BaseURL)
+	matches, activeBaseURL, fallbackWarning, err := p.fetchMatchesWithFallback(ctx, resolved.BaseURL, resolved.Discovered)
 	if err != nil {
 		if len(p.cached) > 0 {
 			return cloneJRS33Matches(p.cached), "JRS33 更新失败，当前显示缓存赛事：" + err.Error(), nil
 		}
 		return nil, "", err
 	}
+	p.activeBaseURL = activeBaseURL
 	p.cached = cloneJRS33Matches(matches)
 	p.cachedAt = now
 	cacheBody, _ := json.Marshal(jrs33MatchCache{Version: 1, CachedAt: now, Items: p.cached})
 	_ = writeNativeCacheFile(p.cachePath, cacheBody)
-	return matches, "", nil
+	return matches, fallbackWarning, nil
 }
 
 // matchChannels fetches a match detail page only when the user expands its channel list.
@@ -205,6 +207,57 @@ func (p *jrs33Provider) fetchMatches(ctx context.Context, base string) ([]jrs33M
 		return []jrs33Match{}, nil
 	}
 	return matches, nil
+}
+
+// fetchMatchesWithFallback avoids treating an empty primary mirror as the whole
+// source being empty. JRKAN's own homepage publishes alternate domains; try
+// those mirrors when the preferred domain returns no fixtures or an error.
+func (p *jrs33Provider) fetchMatchesWithFallback(ctx context.Context, primary string, discovered []string) ([]jrs33Match, string, string, error) {
+	candidates := []string{primary}
+	candidates = append(candidates, discovered...)
+	seen := make(map[string]bool)
+	var firstErr error
+	var emptyDomains []string
+	attempts := 0
+	for _, raw := range candidates {
+		base := normalizeJRS33URL(raw)
+		if base == "" || seen[base] {
+			continue
+		}
+		seen[base] = true
+		if attempts >= 5 {
+			break
+		}
+		attempts++
+		matches, err := p.fetchMatches(ctx, base)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if len(matches) > 0 {
+			warning := ""
+			if base != normalizeJRS33URL(primary) {
+				warning = "首选域名未返回赛事，已切换备用域名：" + base
+			}
+			return matches, base, warning, nil
+		}
+		emptyDomains = append(emptyDomains, base)
+	}
+	if firstErr != nil {
+		return nil, "", "", fmt.Errorf("首选域名及备用域名未能确认赛事数据（已验证空列表域名：%s）：%w", strings.Join(emptyDomains, "、"), firstErr)
+	}
+	return []jrs33Match{}, normalizeJRS33URL(primary), "", nil
+}
+
+func (p *jrs33Provider) currentBaseURL() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.activeBaseURL != "" {
+		return p.activeBaseURL
+	}
+	return ""
 }
 
 func (p *jrs33Provider) getText(ctx context.Context, rawURL, referer string) (string, string, error) {
