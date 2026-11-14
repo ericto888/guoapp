@@ -262,6 +262,23 @@ func (manager *jrs33DomainManager) fetchRemoteConfig(ctx context.Context) (jrs33
 	return config, nil
 }
 
+// isJRS33ChallengePage rejects anti-bot interstitials even when they return HTTP 200.
+// A challenge page must never be treated as a valid domain or an empty fixture list.
+func isJRS33ChallengePage(body string) bool {
+	page := strings.ToLower(body)
+	markers := []string{
+		"cf-chl-", "challenge-platform", "cf-browser-verification",
+		"checking your browser", "just a moment...", "attention required!",
+		"/cdn-cgi/challenge-platform/", "enable javascript and cookies to continue",
+	}
+	for _, marker := range markers {
+		if strings.Contains(page, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 func (manager *jrs33DomainManager) probe(ctx context.Context, base string) ([]string, error) {
 	client := manager.client
 	if client == nil {
@@ -290,6 +307,9 @@ func (manager *jrs33DomainManager) probe(ctx context.Context, base string) ([]st
 	body, err := io.ReadAll(io.LimitReader(response.Body, jrs33MaxPageBytes+1))
 	if err != nil || len(body) > jrs33MaxPageBytes {
 		return nil, errors.New("JRS33 首页读取失败或超出大小限制")
+	}
+	if isJRS33ChallengePage(string(body)) {
+		return nil, errors.New("页面触发 Cloudflare/反爬验证，不能作为可用赛事域名")
 	}
 	page := strings.ToUpper(string(body))
 	matched := false
