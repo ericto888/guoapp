@@ -1,6 +1,9 @@
 package core
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // footballMatches returns JRS33 fixtures and their public match-page channel
 // entry links. It deliberately does not extract or proxy the underlying media.
@@ -24,7 +27,7 @@ func (engine *nativeEngine) footballMatches(ctx context.Context, force bool) (an
 	resolved, domainErr := engine.jrs33Domains.resolve(ctx)
 	result := map[string]any{
 		"items": marshalJRS33Matches(matches), "configured": true, "dataReady": true,
-		"source": "jrs33", "updatedAt": engine.jrs33Provider.cachedAt,
+		"source": "jrs33", "updatedAt": time.Now(),
 	}
 	if domainErr == nil {
 		result["baseUrl"] = resolved.BaseURL
