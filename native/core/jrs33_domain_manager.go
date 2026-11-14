@@ -119,6 +119,9 @@ func normalizeJRS33URL(raw string) string {
 	if err != nil {
 		return ""
 	}
+	if parsed.Scheme != "" && parsed.Scheme != "https" {
+		return ""
+	}
 	if parsed.Scheme == "" {
 		parsed, err = url.Parse("https://" + raw)
 		if err != nil {
