@@ -149,6 +149,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ? '系统取色'
             : store.themeColor.label,
         displayModes[platformDisplayMode(store.displayMode)],
+        if (store.showFootballOnHome) '首页赛事已开启',
       ].join(' · '),
       SettingsGroup.playback => '倍速、清晰度、解码与手势',
       SettingsGroup.danmaku => '字号、颜色、显示区域与屏蔽词',
