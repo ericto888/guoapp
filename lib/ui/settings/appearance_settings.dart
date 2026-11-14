@@ -127,6 +127,16 @@ class AppearanceSettings extends StatelessWidget {
         ),
         GroupCard(
           children: [
+            SwitchTile(
+              title: '在首页底部显示赛事',
+              subtitle: '在发现页内容列表底部显示足球赛事预览',
+              value: store.showFootballOnHome,
+              onChanged: (value) => saveSetting(
+                context,
+                () => store.setShowFootballOnHome(value),
+              ),
+            ),
+            const Divider(indent: 16, endIndent: 16),
             SettingsTile(
               title: '界面模式',
               subtitle: displayModes[platformDisplayMode(store.displayMode)]!,
