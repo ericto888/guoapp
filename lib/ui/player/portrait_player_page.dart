@@ -861,7 +861,9 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                 ),
               ),
               Text(
-                '第 ${session.episode.number} 集',
+                session.detail.drama.source == 'football'
+                    ? '当前线路：${session.episode.title}'
+                    : '第 ${session.episode.number} 集',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: .78),
                   fontSize: 12,
@@ -1011,7 +1013,9 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
               ),
               Expanded(
                 child: Text(
-                  '· $status共 $count 集',
+                  drama.source == 'football'
+                      ? '· 共 $count 条线路'
+                      : '· $status共 $count 集',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -1198,6 +1202,9 @@ class _EpisodeSheetState extends State<_EpisodeSheet> {
               builder: (context, _) => EpisodeGrid(
                 episodes: episodes,
                 current: _session.index,
+                labelBuilder: _session.detail.drama.source == 'football'
+                    ? (episode) => episode.title
+                    : null,
                 selecting: _selecting,
                 selected: _selected,
                 touch: true,
