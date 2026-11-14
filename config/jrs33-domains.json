@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "domains": [
+    { "url": "https://m.jrs33.com", "priority": 100 },
+    { "url": "https://www.jrkan.com", "priority": 90 },
+    { "url": "https://m.jrskk.com", "priority": 80 },
+    { "url": "https://m.jrs21.com", "priority": 70 },
+    { "url": "https://www.jrs13.com", "priority": 60 },
+    { "url": "https://www.jrs14.com", "priority": 50 },
+    { "url": "https://www.jrs03.com", "priority": 40 }
+  ]
+}
