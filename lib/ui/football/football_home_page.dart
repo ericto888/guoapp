@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -19,6 +21,22 @@ class _FootballHomePageState extends State<FootballHomePage> {
   var _loaded = false;
   _FootballMatchFilter _filter = _FootballMatchFilter.all;
   final Map<String, Future<List<FootballLiveChannel>>> _channelLoads = {};
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (!mounted) return;
+      setState(() => _matches = _load(force: true));
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   void didChangeDependencies() {
@@ -106,7 +124,8 @@ class _FootballHomePageState extends State<FootballHomePage> {
         child: FutureBuilder<List<FootballMatch>>(
           future: _matches,
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
