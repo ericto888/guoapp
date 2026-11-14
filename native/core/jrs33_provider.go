@@ -587,7 +587,12 @@ func directJRS33Cells(row *xhtml.Node) []*xhtml.Node {
 func buildJRS33MatchFromRow(row *xhtml.Node, baseURL, league, home, away, timeText string) jrs33Match {
 	detailURL := ""
 	for _, a := range findJRS33Elements(row, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "a" }) {
-		if hasJRS33Class(a, "me") { detailURL = resolveJRS33Link(baseURL, jrs33Attr(a, "href")); break }
+		// Homepage channel anchors also carry the "me" class. They are not
+		// match-detail links; treating one as DetailURL breaks match identity.
+		if hasJRS33Class(a, "me") && !hasJRS33Class(a, "item") {
+			detailURL = resolveJRS33Link(baseURL, jrs33Attr(a, "href"))
+			if detailURL != "" { break }
+		}
 	}
 	id := jrs33StableMatchID(detailURL, league, home, away, timeText)
 	status, matchTime := parseJRS33RowStatus(row, timeText)
@@ -595,6 +600,23 @@ func buildJRS33MatchFromRow(row *xhtml.Node, baseURL, league, home, away, timeTe
 	if status == "unknown" {
 		item.StatusEvidence = jrs33StatusEvidence(row, timeText)
 	}
+	// The current JRKAN homepage stores each team's score in em.bf[title].
+	// A score title is not a clock/status value; read it only inside its team cell.
+	teamScore := func(class string) *int {
+		teams := findJRS33Elements(row, func(n *xhtml.Node) bool {
+			return n.Type == xhtml.ElementNode && hasJRS33Class(n, class)
+		})
+		if len(teams) == 0 { return nil }
+		badges := findJRS33Elements(teams[0], func(n *xhtml.Node) bool {
+			return n.Type == xhtml.ElementNode && hasJRS33Class(n, "bf")
+		})
+		if len(badges) == 0 { return nil }
+		value, err := strconv.Atoi(jrs33Attr(badges[0], "title"))
+		if err != nil || value < 0 || value > 99 { return nil }
+		return &value
+	}
+	item.HomeScore = teamScore("lab_team_home")
+	item.AwayScore = teamScore("lab_team_away")
 	channelSeen := make(map[string]bool)
 	for _, a := range findJRS33Elements(row, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "a" }) {
 		name := cleanJRS33Text(jrs33NodeText(a))
