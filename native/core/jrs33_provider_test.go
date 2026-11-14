@@ -335,12 +335,49 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 			home, finalURL, homeErr := provider.getText(ctx, base+"/?lan=0", "")
 			if homeErr == nil {
 				rawHome := home
+				if req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, base+"/?lan=0", nil); reqErr == nil {
+					req.Header.Set("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1")
+					if resp, respErr := client.Do(req); respErr == nil {
+						t.Logf("HOME_HEADERS date=%q age=%q cache=%q lastmod=%q", resp.Header.Get("Date"), resp.Header.Get("Age"), resp.Header.Get("CF-Cache-Status"), resp.Header.Get("Last-Modified"))
+						resp.Body.Close()
+					}
+				}
+				rawDoc, rawParseErr := xhtml.Parse(strings.NewReader(rawHome))
+				if rawParseErr == nil {
+					scripts := findJRS33Elements(rawDoc, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "script" })
+					for i, scriptNode := range scripts {
+						if i >= 16 { break }
+						src := jrs33Attr(scriptNode, "src")
+						if src == "" { continue }
+						baseURL, _ := url.Parse(finalURL); refURL, _ := url.Parse(stdhtml.UnescapeString(src))
+						if baseURL == nil || refURL == nil { continue }
+						scriptURL := baseURL.ResolveReference(refURL)
+						t.Logf("PAGE_SCRIPT %s", scriptURL.String())
+						if !isJRS33Host(scriptURL.Hostname()) { continue }
+						if scriptBody, _, scriptErr := provider.getText(ctx, scriptURL.String(), finalURL); scriptErr == nil {
+							lower := strings.ToLower(scriptBody)
+							if strings.Contains(lower, "lab_vs") || strings.Contains(lower, "data-lid") || strings.Contains(lower, "lab_bc") || strings.Contains(lower, "lab_jq") || strings.Contains(lower, "sub_status") || strings.Contains(lower, "getjson") || strings.Contains(lower, "ajax") || strings.Contains(lower, "setinterval") {
+								t.Logf("PAGE_SCRIPT_MATCH url=%q bytes=%d", scriptURL.String(), len(scriptBody))
+								for _, token := range []string{"lab_vs", "data-lid", "lab_bc", "lab_jq", "sub_status", "getJSON", "ajax", "setInterval"} {
+									pos := strings.Index(lower, strings.ToLower(token))
+									if pos >= 0 { start, finish := pos-250, pos+1000; if start < 0 { start = 0 }; if finish > len(scriptBody) { finish = len(scriptBody) }; t.Logf("PAGE_SCRIPT_%s %s", token, scriptBody[start:finish]) }
+								}
+							}
+						}
+					}
+				}
 				expanded, expandErr := provider.expandIndexScript(ctx, home, finalURL)
 				if expandErr == nil { home = expanded }
 				doc, parseErr := xhtml.Parse(strings.NewReader(home))
 				if parseErr == nil {
 					rows := findJRS33Elements(doc, func(n *xhtml.Node) bool { return hasJRS33Class(n, "d-touch") })
 					t.Logf("RAW_HOME final=%q bytes=%d rows=%d expanded=%v", finalURL, len(home), len(rows), expandErr == nil)
+					vsClasses := make(map[string]int)
+					for _, row := range rows {
+						vs := findJRS33Elements(row, func(n *xhtml.Node) bool { return hasJRS33Class(n, "lab_vs") })
+						if len(vs) > 0 { vsClasses[jrs33Attr(vs[0], "class")]++ }
+					}
+					t.Logf("VS_CLASSES %#v", vsClasses)
 					for i, row := range rows {
 						if i >= 12 { break }
 						var markup strings.Builder
