@@ -158,9 +158,7 @@ class _FootballHomePageState extends State<FootballHomePage> {
       dense: true,
       leading: const Icon(Icons.play_circle_outline),
       title: Text(channel.name),
-      subtitle: Text(
-        index == 0 ? '默认线路 · GuoApp 内置播放器' : 'GuoApp 内置播放器',
-      ),
+      subtitle: Text(index == 0 ? '默认线路 · GuoApp 内置播放器' : 'GuoApp 内置播放器'),
       onTap: () => _playChannel(context, match, channels, index),
     );
   }
@@ -478,7 +476,11 @@ class _FootballHomePageState extends State<FootballHomePage> {
                                     }
                                     return Column(
                                       children: [
-                                        for (var i = 0; i < channels.length; i++)
+                                        for (
+                                          var i = 0;
+                                          i < channels.length;
+                                          i++
+                                        )
                                           _channelTile(
                                             context,
                                             match,
@@ -625,3 +627,4 @@ class _FootballMatchesSectionState extends State<FootballMatchesSection> {
     );
   }
 }
+2026-11-14T10:03:25.2626309
