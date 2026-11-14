@@ -8,6 +8,7 @@ import (
 	"fmt"
 	stdhtml "html"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -212,8 +213,8 @@ func (p *jrs33Provider) expandIndexScript(ctx context.Context, home, baseURL str
 			if len(part) < 3 || hosts[part[1]] == "" { return "" }
 			return hosts[part[1]] + path[1] + part[2] + path[2]
 		})
-		fragment = strings.ReplaceAll(fragment, `\\'`, `'`)
-		fragment = strings.ReplaceAll(fragment, `\\\\`, `\\`)
+		fragment = strings.ReplaceAll(fragment, `\'`, `'`)
+		fragment = strings.ReplaceAll(fragment, `\\`, `\`)
 		output.WriteString(fragment)
 		output.WriteByte('\n')
 	}
@@ -269,7 +270,7 @@ func parseJRS33Channels(source, baseURL string) []jrs33LiveChannel {
 			strong := findJRS33Elements(a, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "strong" })
 			if len(strong) > 0 { name = cleanJRS33Text(jrs33NodeText(strong[0])) }
 			if name == "" { name = cleanJRS33Text(jrs33NodeText(a)) }
-			link := resolveJRS33Link(baseURL, raw)
+			link := resolveJRS33ChannelLink(baseURL, raw)
 			if link == "" || name == "" || seen[link] { continue }
 			seen[link] = true
 			result = append(result, jrs33LiveChannel{Name:name, URL:link})
@@ -329,6 +330,25 @@ func resolveJRS33Link(baseURL, raw string) string {
 	if err != nil { return "" }
 	resolved := base.ResolveReference(ref)
 	if resolved.Scheme != "https" || !isJRS33Host(resolved.Hostname()) { return "" }
+	return resolved.String()
+}
+
+func resolveJRS33ChannelLink(baseURL, raw string) string {
+	raw = strings.TrimSpace(stdhtml.UnescapeString(raw))
+	if raw == "" || strings.HasPrefix(strings.ToLower(raw), "javascript:") || strings.HasPrefix(raw, "#") {
+		return ""
+	}
+	base, err := url.Parse(baseURL)
+	if err != nil { return "" }
+	ref, err := url.Parse(raw)
+	if err != nil { return "" }
+	resolved := base.ResolveReference(ref)
+	if resolved.Scheme != "https" || resolved.Host == "" || resolved.User != nil {
+		return ""
+	}
+	if ip := net.ParseIP(resolved.Hostname()); ip != nil {
+		return ""
+	}
 	return resolved.String()
 }
 
