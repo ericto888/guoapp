@@ -1,16 +1,20 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
-
 import '../../football_models.dart';
+import '../../local_store.dart';
+import '../../models.dart';
+import '../player/playback_handle.dart';
+import '../player/playback_page.dart';
 import '../app_scope.dart';
 
 enum _FootballMatchFilter { all, live, upcoming, finished }
 
 /// 足球赛事中心首页。数据通过 Go 核心获取，不依赖影视剧库。
 class FootballHomePage extends StatefulWidget {
-  const FootballHomePage({super.key});
+  const FootballHomePage({super.key, required this.store});
+
+  final LocalStore store;
 
   @override
   State<FootballHomePage> createState() => _FootballHomePageState();
@@ -84,24 +88,55 @@ class _FootballHomePageState extends State<FootballHomePage> {
     _ => '未开始',
   };
 
+  Future<void> _playChannel(
+    BuildContext context,
+    FootballLiveChannel channel,
+  ) async {
+    final repository = AppScope.of(context).repository;
+    try {
+      final plan = await repository.footballResolveChannel(channel.url);
+      if (!context.mounted) return;
+      final drama = Drama(
+        id: 'football:\${channel.url}',
+        source: 'football',
+        title: channel.name,
+        episodes: 1,
+        category: '足球直播',
+      );
+      final detail = DramaDetail(
+        drama,
+        [Episode({'id': channel.url, 'title': channel.name}, 1)],
+      );
+      final handle = PlaybackHandle(
+        repository: repository,
+        store: widget.store,
+        detail: detail,
+        index: 0,
+        preopen: false,
+        initialPlan: plan,
+        directResolver: () => repository.footballResolveChannel(channel.url),
+      );
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => PlaybackPage(store: widget.store, handle: handle),
+        ),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('直播解析或播放失败：$error')),
+        );
+      }
+    }
+  }
+
   Widget _channelTile(BuildContext context, FootballLiveChannel channel) {
     return ListTile(
       dense: true,
       leading: const Icon(Icons.play_circle_outline),
       title: Text(channel.name),
-      subtitle: const Text('打开第三方直播入口'),
-      onTap: () async {
-        final uri = Uri.tryParse(channel.url);
-        if (uri == null || !uri.isScheme('https') || !await canLaunchUrl(uri)) {
-          if (context.mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(const SnackBar(content: Text('直播入口暂时无法打开')));
-          }
-          return;
-        }
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      },
+      subtitle: const Text('使用 GuoApp 内置播放器'),
+      onTap: () => _playChannel(context, channel),
     );
   }
 
