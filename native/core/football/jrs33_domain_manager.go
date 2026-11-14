@@ -142,10 +142,15 @@ func (manager *jrs33DomainManager) resolve(ctx context.Context) (jrs33ResolvedDo
 	}
 
 	candidates := []jrs33DomainCandidate{
-		{URL: "https://m.jrs33.com", Priority: 100},
-		{URL: "https://www.jrkan.com", Priority: 90},
-		{URL: "https://m.jrskk.com", Priority: 80},
-		{URL: "https://m.jrs21.com", Priority: 70},
+		{URL: "https://www.jrkan.com", Priority: 110},
+		{URL: "https://www.jrs945.com", Priority: 105},
+		{URL: "https://www.jrs80.com", Priority: 100},
+		{URL: "https://www.jrs04.com", Priority: 95},
+		{URL: "https://www.jrs03.com", Priority: 90},
+		{URL: "https://m.jrs33.com", Priority: 70},
+		{URL: "https://www.jrskk.com", Priority: 60},
+		{URL: "https://m.jrskk.com", Priority: 50},
+		{URL: "https://m.jrs21.com", Priority: 40},
 	}
 	for _, discovered := range manager.cache.Discovered {
 		candidates = append(candidates, jrs33DomainCandidate{URL: discovered, Priority: 95})
