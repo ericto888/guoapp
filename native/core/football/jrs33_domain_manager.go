@@ -26,7 +26,7 @@ const (
 )
 
 var (
-	jrs33DomainPattern = regexp.MustCompile(`(?i)(?:m\.|www\.)?(?:jrs(?:[0-9]+|kk)|jrkan)\.com`)
+	jrs33DomainPattern = regexp.MustCompile(`(?i)(?:m\.|www\.)?(?:jrs[a-z0-9-]+|jrskk|jrkan)\.com`)
 	jrs33DomainMarkers = []string{"JRSKAN", "JRKAN直播", "JRS直播"}
 )
 
@@ -105,7 +105,7 @@ func isJRS33Host(host string) bool {
 	if host == "jrskk.com" || strings.HasSuffix(host, ".jrskk.com") {
 		return true
 	}
-	return regexp.MustCompile(`^(?:m\.|www\.)?jrs[0-9]+\.com$`).MatchString(host)
+	return regexp.MustCompile(`^(?:m\.|www\.)?jrs[a-z0-9-]+\.com$`).MatchString(host)
 }
 
 func normalizeJRS33URL(raw string) string {
