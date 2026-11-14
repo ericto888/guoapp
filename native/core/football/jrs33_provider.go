@@ -168,7 +168,16 @@ func (p *jrs33Provider) getText(ctx context.Context, rawURL, referer string) (st
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/javascript,*/*")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 	if referer != "" { req.Header.Set("Referer", referer) }
-	response, err := client.Do(req)
+	requestClient := *client
+	requestClient.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		if len(via) >= 5 { return errors.New("JRS33 页面重定向次数过多") }
+		if request.URL.Scheme != "https" || !isJRS33Host(request.URL.Hostname()) {
+			return errors.New("JRS33 页面跳转到非可信域名，已拒绝")
+		}
+		if client.CheckRedirect != nil { return client.CheckRedirect(request, via) }
+		return nil
+	}
+	response, err := requestClient.Do(req)
 	if err != nil { return "", "", err }
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 || response.Request == nil || response.Request.URL == nil {
