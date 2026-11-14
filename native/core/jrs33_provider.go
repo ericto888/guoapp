@@ -642,7 +642,7 @@ var jrs33MinuteRE = regexp.MustCompile("(?i)(?:第\\s*)?(\\d{1,3})\\s*(?:['′�
 var jrs33StatusClassRE = regexp.MustCompile("(?i)(?:^|\\s)(?:live|playing|ing|half|halftime|finished|end|schedule|upcoming)(?:\\s|$)")
 
 func jrs33RowStatusText(row *xhtml.Node, timeText string) string {
-	parts := []string{timeText}
+	parts := []string{timeText, cleanJRS33Text(jrs33NodeText(row))}
 	for _, n := range findJRS33Elements(row, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode }) {
 		for _, key := range []string{"title", "aria-label", "data-status", "data-time", "data-minute", "data-period"} {
 			if value := jrs33Attr(n, key); value != "" { parts = append(parts, value) }
