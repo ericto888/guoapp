@@ -294,7 +294,7 @@ class PlaybackSession extends ChangeNotifier {
   late final PlaybackLoader _loader;
   late final PlaybackPreloader _preloader;
   PlaybackPlan? _initialDirectPlan;
-  final Future<PlaybackPlan> Function()? _directResolver;
+  final Future<PlaybackPlan> Function(int index)? _directResolver;
   final bool recordProgress;
   late final _recovery = PlaybackRecovery(
     maxAttempts: _recoveryMaxAttempts,
@@ -696,6 +696,7 @@ class PlaybackSession extends ChangeNotifier {
     // 预加载结果只对本次会话有效：切集后旧会话的解析结果一律丢弃。
     final ticket = _generation;
     if (!_foreground ||
+        detail.drama.source == 'football' ||
         _plan?.local == true ||
         !ready ||
         _openedIndex != _index ||
@@ -764,6 +765,11 @@ class PlaybackSession extends ChangeNotifier {
     if (duration <= Duration.zero ||
         player.state.position < duration - const Duration(seconds: 2)) {
       _queueRecovery('early_completion');
+      return;
+    }
+    // 足球直播多频道属于同一赛事的线路，不是连续剧集；播放结束后不自动跳源。
+    if (detail.drama.source == 'football') {
+      _stopAtEnd();
       return;
     }
     // 用户关掉自动连播时停在本集末尾，不再强制衔接（P1-9）。
@@ -1788,7 +1794,7 @@ class PlaybackSession extends ChangeNotifier {
             return _loader.use(plan, isCurrent: () => _current(ticket));
           }
           if (_directResolver != null) {
-            final plan = await _directResolver();
+            final plan = await _directResolver(index);
             return _loader.use(plan, isCurrent: () => _current(ticket));
           }
           return _loader.load(
