@@ -210,3 +210,30 @@ func TestJRS33CompactTimeStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestJRS33StatusCellIsParsedIndependently(t *testing.T) {
+	cases := []struct {
+		statusText string
+		wantStatus string
+		wantMinute string
+	}{
+		{"未", "scheduled", ""},
+		{"半", "halftime", ""},
+		{"完", "finished", ""},
+		{"65", "live", "65′"},
+	}
+	for _, tc := range cases {
+		html := `<div class="d-touch">
+<span class="name">澳女联</span><span class="name">主队</span><span class="name">客队</span>
+<span class="lab_time">11-14 14:00</span><span class="status">` + tc.statusText + `</span>
+<a class="me" href="/match/status-cell.html">详情</a></div>`
+		matches := parseJRS33Home(html, "https://www.jrkan.com/")
+		if len(matches) != 1 {
+			t.Fatalf("status %q: got %d matches", tc.statusText, len(matches))
+		}
+		if matches[0].Status != tc.wantStatus || matches[0].MatchTime != tc.wantMinute {
+			t.Errorf("status cell %q parsed as %q/%q, want %q/%q",
+				tc.statusText, matches[0].Status, matches[0].MatchTime, tc.wantStatus, tc.wantMinute)
+		}
+	}
+}
