@@ -143,12 +143,18 @@ func TestParseHongguoPlanSeasonsKeepsSameTitleAuthorGroupsSeparate(t *testing.T)
 			if len(seasons) != tc.want {
 				t.Fatalf("got %d seasons, want %d: %+v", len(seasons), tc.want, seasons)
 			}
-			for _, season := range seasons {
-				if tc.want == 9 && containsString(seriesB, season.SeriesID) {
+			for index, season := range seasons {
+				if season.SeasonIndex != index+1 {
+					t.Fatalf("official order changed at position %d: %+v", index, season)
+				}
+				if tc.want == 9 && containsHongguoTestID(seriesB, season.SeriesID) {
 					t.Fatalf("author B season leaked into author A group: %+v", season)
 				}
-				if tc.want == 3 && containsString(seriesA, season.SeriesID) {
+				if tc.want == 3 && containsHongguoTestID(seriesA, season.SeriesID) {
 					t.Fatalf("author A season leaked into author B group: %+v", season)
+				}
+				if season.Title == "" {
+					t.Fatalf("season title was lost: %+v", season)
 				}
 			}
 		})
@@ -166,7 +172,7 @@ func TestParseHongguoPlanSeasonsRejectsNonSeriesCell(t *testing.T) {
 	}
 }
 
-func containsString(values []string, target string) bool {
+func containsHongguoTestID(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
 			return true
