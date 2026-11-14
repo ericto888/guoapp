@@ -392,7 +392,7 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 				if parseErr == nil {
 					rows := findJRS33Elements(doc, func(n *xhtml.Node) bool { return hasJRS33Class(n, "d-touch") })
 					t.Logf("RAW_HOME final=%q bytes=%d rows=%d expanded=%v", finalURL, len(home), len(rows), expandErr == nil)
-					for _, token := range []string{"ch_base_url", "base_zqlq_url", "status_interval_time", "data-config", "config"} {
+					for _, token := range []string{"app_live", "ch_base", "ch_base_url", "base_zqlq_url", "live_config", "data-config", "window.config", "config:"} {
 						pos := strings.Index(strings.ToLower(rawHome), strings.ToLower(token))
 						if pos >= 0 {
 							start, finish := pos-500, pos+1800
@@ -484,6 +484,16 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 						lower := strings.ToLower(assetBody)
 						if strings.Contains(asset, "mm.js") || strings.Contains(asset, "u.js") {
 							t.Logf("CONFIG_ASSET_BODY %s", assetBody)
+						}
+						if strings.Contains(asset, "page.live") {
+							for _, token := range []string{"var g = function(Q, U, T, P, S)", "N.updateEventInfo", "urlToEditor", "ch_base_url"} {
+								pos := strings.Index(assetBody, token)
+								if pos >= 0 {
+									finish := pos + 7000
+									if finish > len(assetBody) { finish = len(assetBody) }
+									t.Logf("LIVE_SCRIPT_%s %s", token, assetBody[pos:finish])
+								}
+							}
 						}
 						for _, token := range []string{"app_live", "ch_base", "base_zqlq", "function g(", "var g =", "ajaxsetup", "dataType", "status_interval_time", "openrandomurl1", "openrandomurl", "getplayurl", "getjson", "urlid", "providerid", "matchinfo", "decrypt"} {
 							count := 0
