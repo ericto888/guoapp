@@ -77,7 +77,7 @@ func TestParseJRS33MediaURL(t *testing.T) {
 		},
 		{
 			name: "escaped player config",
-			source: "var player = { url: \"https:\\\\/\\\\/cdn.example.com\\\\/live\\\\/index.m3u8\" };",
+			source: "var player = { url: \"https:\\/\\/cdn.example.com\\/live\\/index.m3u8\" };",
 			base: "https://play.example.com/watch/1.html",
 			want: "https://cdn.example.com/live/index.m3u8",
 		},
