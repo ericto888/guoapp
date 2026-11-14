@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../football_models.dart';
 import '../../local_store.dart';
 import '../../models.dart';
@@ -310,12 +311,23 @@ class _FootballHomePageState extends State<FootballHomePage> {
                             ),
                             if (match.status == 'unknown' &&
                                 match.statusEvidence.isNotEmpty)
-                              Tooltip(
-                                message: match.statusEvidence,
-                                child: const Padding(
-                                  padding: EdgeInsets.only(left: 4),
-                                  child: Icon(Icons.info_outline, size: 16),
-                                ),
+                              IconButton(
+                                tooltip: '复制源站状态诊断',
+                                visualDensity: VisualDensity.compact,
+                                iconSize: 16,
+                                onPressed: () async {
+                                  await Clipboard.setData(
+                                    ClipboardData(text: match.statusEvidence),
+                                  );
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('源站状态诊断已复制'),
+                                      ),
+                                    );
+                                  }
+                                },
+                                icon: const Icon(Icons.content_copy),
                               ),
                           ],
                         ),
