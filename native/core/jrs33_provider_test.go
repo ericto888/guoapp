@@ -364,6 +364,11 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 				}
 				rawDoc, rawParseErr := xhtml.Parse(strings.NewReader(rawHome))
 				if rawParseErr == nil {
+					for _, n := range findJRS33Elements(rawDoc, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && (n.Data == "body" || jrs33Attr(n, "id") == "page-live" || jrs33Attr(n, "id") == "loc-data-list") }) {
+						attrs := []string{}
+						for _, a := range n.Attr { attrs = append(attrs, a.Key+"="+a.Val) }
+						t.Logf("PAGE_NODE %s %s", n.Data, strings.Join(attrs, " "))
+					}
 					for i, node := range findJRS33Elements(rawDoc, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode && n.Data == "script" && jrs33Attr(n, "src") == "" }) {
 						var inline strings.Builder
 						for child := node.FirstChild; child != nil; child = child.NextSibling { if child.Type == xhtml.TextNode { inline.WriteString(child.Data) } }
@@ -494,6 +499,17 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 						lower := strings.ToLower(assetBody)
 						if strings.Contains(asset, "mm.js") || strings.Contains(asset, "u.js") {
 							t.Logf("CONFIG_ASSET_BODY %s", assetBody)
+						}
+						if strings.Contains(asset, "hwl.base") {
+							lowerBase := strings.ToLower(assetBody)
+							for _, token := range []string{"app_live", "data-page", "data-app", "page", "config", "hwl.page", "data-hwl", "init"} {
+								pos := strings.Index(lowerBase, strings.ToLower(token))
+								if pos >= 0 {
+									start, finish := pos-350, pos+1800
+									if start < 0 { start = 0 }; if finish > len(assetBody) { finish = len(assetBody) }
+									t.Logf("HWL_%s %s", token, assetBody[start:finish])
+								}
+							}
 						}
 						if strings.Contains(asset, "page.live") {
 							for _, token := range []string{"var g = function(Q, U, T, P, S)", "N.updateEventInfo", "urlToEditor", "ch_base_url"} {
