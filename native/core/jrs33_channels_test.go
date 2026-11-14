@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"strings"
@@ -84,5 +85,15 @@ func TestJRS33ResolveChannelRejectsNonHTTPSEntry(t *testing.T) {
 	}
 	if _, _, err := provider.resolveChannel(context.Background(), "https://127.0.0.1/live.m3u8"); err == nil {
 		t.Fatal("IP-literal channel entry should be rejected")
+	}
+}
+
+func TestParseJRS33MediaURLFromBase64PlayerConfig(t *testing.T) {
+	config := `var player = {url: "https://play.example.net/live/index.m3u8?token=abc"};`
+	encoded := base64.StdEncoding.EncodeToString([]byte(config))
+	page := `<script>eval(atob("` + encoded + `"));</script>`
+	got := parseJRS33MediaURL(page, "https://play.example.net/watch.html")
+	if got != "https://play.example.net/live/index.m3u8?token=abc" {
+		t.Fatalf("decoded media URL = %q", got)
 	}
 }
