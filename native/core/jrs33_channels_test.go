@@ -104,7 +104,7 @@ func TestParseJRS33HomeDoesNotTreatBFTitleAsScore(t *testing.T) {
 	page := `<ul>
 <li class="d-touch">
   <span class="name">U17亚洲杯</span>
-  <li class="lab_time">11-14 16:00</li>
+  <div class="lab_time">11-14 16:00</div>
   <span class="name lab_team_home">伊拉克U17<em class="bf" title="2"></em></span>
   <span class="name lab_team_away">中国台北U17<em class="bf" title="2"></em></span>
   <div class="sub_status"><em class="spin_ant"></em></div>
@@ -131,7 +131,7 @@ func TestParseJRS33CurrentMinuteFromStatusNode(t *testing.T) {
 	page := `<ul>
 <li class="d-touch">
   <span class="name">英超</span>
-  <li class="lab_time">11-14 16:00</li>
+  <div class="lab_time">11-14 16:00</div>
   <span class="name lab_team_home">主队<em class="bf">1</em></span>
   <span class="name lab_team_away">客队<em class="bf">0</em></span>
   <div class="sub_status">65'<em class="spin_ant"></em></div>
