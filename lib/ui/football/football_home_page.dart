@@ -53,13 +53,11 @@ class _FootballHomePageState extends State<FootballHomePage> {
       subtitle: const Text('打开第三方直播入口'),
       onTap: () async {
         final uri = Uri.tryParse(channel.url);
-        if (uri == null ||
-            !uri.isScheme('https') ||
-            !await canLaunchUrl(uri)) {
+        if (uri == null || !uri.isScheme('https') || !await canLaunchUrl(uri)) {
           if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('直播入口暂时无法打开')),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('直播入口暂时无法打开')));
           }
           return;
         }
@@ -122,9 +120,7 @@ class _FootballHomePageState extends State<FootballHomePage> {
                     color: theme.colorScheme.primary,
                   ),
                   const SizedBox(height: 18),
-                  const Center(
-                    child: Text('足球赛事中心已就绪'),
-                  ),
+                  const Center(child: Text('足球赛事中心已就绪')),
                   const SizedBox(height: 8),
                   Center(
                     child: Text(
@@ -150,10 +146,7 @@ class _FootballHomePageState extends State<FootballHomePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Text(
-                          match.league,
-                          style: theme.textTheme.labelMedium,
-                        ),
+                        Text(match.league, style: theme.textTheme.labelMedium),
                         const SizedBox(height: 12),
                         Row(
                           children: [
@@ -231,7 +224,10 @@ class _FootballHomePageState extends State<FootballHomePage> {
                                         const <FootballLiveChannel>[];
                                     if (channels.isEmpty) {
                                       return TextButton.icon(
-                                        onPressed: () => _loadChannels(match.id, retry: true),
+                                        onPressed: () => _loadChannels(
+                                          match.id,
+                                          retry: true,
+                                        ),
                                         icon: const Icon(Icons.refresh),
                                         label: const Text('暂未发现直播频道，重新加载'),
                                       );
@@ -259,7 +255,6 @@ class _FootballHomePageState extends State<FootballHomePage> {
     );
   }
 }
-
 
 /// 发现首页使用的赛事预览，不嵌套完整页面 Scaffold。
 class FootballMatchesSection extends StatefulWidget {
