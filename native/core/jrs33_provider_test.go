@@ -473,7 +473,7 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 						if assetErr != nil { t.Logf("ASSET_ERROR %s %v", asset, assetErr); continue }
 						t.Logf("ASSET %s bytes=%d", asset, len(assetBody))
 						lower := strings.ToLower(assetBody)
-						for _, token := range []string{"diclist", "status_interval_time", "openrandomurl1", "openrandomurl", "getplayurl", "getjson", "ajax", "dataurl", "urlid", "providerid", "loadmatch", "getmatch", "matchinfo", "decrypt"} {
+						for _, token := range []string{"base_zqlq", "function g(", "var g =", "ajaxsetup", "dataType", "status_interval_time", "openrandomurl1", "openrandomurl", "getplayurl", "getjson", "urlid", "providerid", "matchinfo", "decrypt"} {
 							count := 0
 							for offset := 0; offset < len(lower) && count < 8; {
 								pos := strings.Index(lower[offset:], token)
