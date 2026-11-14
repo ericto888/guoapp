@@ -28,6 +28,6 @@ jobs:
           cache: true
       - run: flutter pub get
       - name: Check Dart formatting
-        run: dart format --output=show lib/ui/football/football_home_page.dart
+        run: dart format --output=none --set-exit-if-changed lib/core_bridge.dart lib/football_models.dart lib/ui/football
       - name: Analyze football integration
         run: dart analyze lib/core_bridge.dart lib/football_models.dart lib/ui/football
