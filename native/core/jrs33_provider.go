@@ -408,7 +408,7 @@ func parseJRS33TableRows(doc *xhtml.Node, baseURL string) []jrs33Match {
 		if len(cells) <= homeCol || len(cells) <= awayCol { continue }
 		home := cleanJRS33Text(jrs33NodeText(cells[homeCol]))
 		away := cleanJRS33Text(jrs33NodeText(cells[awayCol]))
-		if home == "" || away == "" || strings.EqualFold(home, "home team") || strings.EqualFold(away, "away team") { continue }
+		if home == "" || away == "" || strings.EqualFold(home, "home team") || strings.EqualFold(away, "away team") || home == "主队" || away == "客队" { continue }
 		league, timeText := "", ""
 		if leagueCol >= 0 && leagueCol < len(cells) { league = cleanJRS33Text(jrs33NodeText(cells[leagueCol])) }
 		if timeCol >= 0 && timeCol < len(cells) { timeText = cleanJRS33Text(jrs33NodeText(cells[timeCol])) }
