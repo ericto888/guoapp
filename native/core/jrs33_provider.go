@@ -70,6 +70,7 @@ type jrs33Provider struct {
 type jrs33MatchCache struct {
 	Version int `json:"version"`
 	CachedAt time.Time `json:"cachedAt"`
+	BaseURL string `json:"baseUrl,omitempty"`
 	Items []jrs33Match `json:"items"`
 }
 
@@ -111,7 +112,7 @@ func (p *jrs33Provider) matches(ctx context.Context, force bool) ([]jrs33Match, 
 	p.activeBaseURL = activeBaseURL
 	p.cached = cloneJRS33Matches(matches)
 	p.cachedAt = now
-	cacheBody, _ := json.Marshal(jrs33MatchCache{Version: 1, CachedAt: now, Items: p.cached})
+	cacheBody, _ := json.Marshal(jrs33MatchCache{Version: 1, CachedAt: now, BaseURL: p.activeBaseURL, Items: p.cached})
 	_ = writeNativeCacheFile(p.cachePath, cacheBody)
 	return matches, fallbackWarning, nil
 }
@@ -172,6 +173,9 @@ func (p *jrs33Provider) loadCacheLocked() {
 	}
 	p.cached = cloneJRS33Matches(cache.Items)
 	p.cachedAt = cache.CachedAt
+	if validJRS33URL(cache.BaseURL) {
+		p.activeBaseURL = cache.BaseURL
+	}
 }
 
 func cloneJRS33Matches(matches []jrs33Match) []jrs33Match {
