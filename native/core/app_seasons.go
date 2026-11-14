@@ -85,21 +85,15 @@ func (engine *nativeEngine) nativeSeasons(ctx context.Context, input nativeInput
 		return nativeSeasonResult{}, errors.New("剧集信息无效")
 	}
 
-	// 红果：官方 plan/v 是系列季列表的主数据源，包含已上线季和待上线预告。
-	// 只要官方接口返回了有效的多季结果（且 hongguoOfficialSeasons 已确认
-	// 当前季并完成同名过滤），就直接返回，不再要求季号必须从第 1 季连续。
-	// 从第 2 季或更后面的季进入时，官方列表可能不含第 1 季；用连续性判断
-	// 会错误触发搜索、详情校验和跨组扩展，季数越多，首屏等待越明显。
-	// 官方接口失败或只返回单季时，才保留原有搜索聚合兜底。
-	var skeleton []nativeSeason
+	// 红果官方 plan/v 已按 show_type=547 和当前 book_id 定位到唯一系列组。
+	// 一旦命中，就完整采用该组（包括只有一季的情况），不再用标题搜索
+	// 合并同名不同作者的作品，也不再对官方组做二次过滤。
 	if source == sourceHongguo && hongguoNumericID.MatchString(sourceID) {
 		if result, ok := engine.hongguoOfficialSeasons(ctx, sourceID, input.Drama); ok {
-			if len(result.Items) > 1 {
-				return result, nil
-			}
-			skeleton = result.Items
+			return result, nil
 		}
 	}
+	var skeleton []nativeSeason
 
 	adapter, supported := engine.nativeSeasonAdapter(source)
 	if !supported {
@@ -166,9 +160,9 @@ func (engine *nativeEngine) nativeSeasons(ctx context.Context, input nativeInput
 			}
 			return mergeSeasonItems(items, filled)
 		},
-		func(items []nativeSeason) []nativeSeason {
-			return engine.hongguoExpandPlanSeasons(lookup, items)
-		},
+		// 官方分组未命中时才进入搜索兜底；这里不再跨搜索候选逐个
+		// 请求 plan/v 并按标题拼接，避免把同名不同作者的官方分组混在一起。
+		func(items []nativeSeason) []nativeSeason { return items },
 	)
 	if len(result.Items) <= 1 {
 		result.Items = nil
@@ -317,26 +311,17 @@ func (engine *nativeEngine) hongguoOfficialSeasons(
 	current nativeDrama,
 ) (nativeSeasonResult, bool) {
 	seasons, ok := engine.downloader.hongguoPlanSeasons(ctx, sourceID)
-	if !ok || len(seasons) == 0 {
+	if !ok {
 		return nativeSeasonResult{}, false
 	}
-	// plan/v 会基于 same_ip_series 返回同 IP 但不同作者/不同故事的剧。
-	// 用标题 base 匹配过滤——只有 base title 和当前剧一致的才留。
-	currentBase, _, _ := hongguoSeasonLookup(current.Title)
-	if currentBase != "" {
-		filtered := seasons[:0]
-		for _, s := range seasons {
-			sBase, _, _ := hongguoSeasonLookup(s.Title)
-			// 当前季用 seriesID 确认（避免 title 解析异常误过滤）
-			if s.SeriesID == sourceID || (sBase != "" && sBase == currentBase) {
-				filtered = append(filtered, s)
-			}
-		}
-		seasons = filtered
-		if len(seasons) == 0 {
-			return nativeSeasonResult{}, false
-		}
+	if len(seasons) == 0 {
+		// 请求成功但官方没有返回包含当前 book_id 的系列分组。
+		// 这是权威的“无官方系列”结果，不再用同名搜索猜测关联关系。
+		return nativeSeasonResult{}, true
 	}
+	// hongguoPlanSeasons 已经按当前 book_id 选中了 show_type=547 的
+	// 官方分组。这里不能再按标题 base 过滤：同一作者的季标题可能带额外
+	// 文案（例如“啦第三季”），而不同作者的同名作品也不能互相合并。
 
 	currentIndex := current.SeasonIndex
 	if currentIndex == 0 {
@@ -391,17 +376,8 @@ func (engine *nativeEngine) hongguoOfficialSeasons(
 			Drama:    drama,
 		})
 	}
-	// 排序后再判断：调用方依赖 items[0] 是不是第 1 季来决定要不要继续补齐。
-	sort.Slice(items, func(i, j int) bool { return items[i].Number < items[j].Number })
-	if len(items) <= 1 {
-		// plan/v 只返回当前这一季：红果后台常把同一部剧拆成多个系列组
-		// （首季上架时还没建系列，后续季单独成组），于是从第一季点进去
-		// 看不到第二季，却能从第二季看到第三季。
-		// 这里返回 false 让调用方 fallback 到搜索聚合，由 officialSeasons
-		// 用标题严格匹配 + 上线时间单调性把跨组的季并回来；
-		// 若确实只有一季，聚合结果仍是 1 项，行为与之前一致。
-		return nativeSeasonResult{}, false
-	}
+	// 保留 plan/v 的官方返回顺序。当前 book_id 已被选中且分组完整，
+	// 即使只有一季也不能回退到标题搜索，否则会把同名作者的作品合并。
 	return nativeSeasonResult{Items: items}, true
 }
 

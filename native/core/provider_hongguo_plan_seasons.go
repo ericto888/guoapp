@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -35,7 +34,7 @@ var hongguoUpcomingDatePattern = regexp.MustCompile(`预计(\d{1,2})月(\d{1,2})
 // 这个接口按 book_id（即剧的 series_id）返回官方认可的完整系列季列表，
 // 含待上线季（episode_cnt=0、sub_title_list 带「预计X月X日上线」），
 // 不同系列（同名不同作者）互不污染，不依赖搜索召回。
-// 成功时返回完整列表（至少 1 项），失败时返回 ok=false，调用方 fallback 到搜索聚合。
+// ok 表示只读请求成功；返回空列表表示接口没有给当前 book_id 提供官方系列分组。
 //
 // 关键参数（query string，非 body）：
 //   - scene=10, from=single_col_same_ip_series 让红果返回"同系列的季列表"
@@ -45,6 +44,7 @@ func (downloader *Downloader) hongguoPlanSeasons(ctx context.Context, bookID str
 		return nil, false
 	}
 	var seasons []hongguoPlanSeason
+	requestSucceeded := false
 	offset := ""
 	for page := 0; page < 3; page++ {
 		extra := url.Values{}
@@ -62,6 +62,7 @@ func (downloader *Downloader) hongguoPlanSeasons(ctx context.Context, bookID str
 			}
 			return nil, false
 		}
+		requestSucceeded = true
 		batch, hasMore, next := parseHongguoPlanSeasons(result, bookID)
 		seasons = append(seasons, batch...)
 		if !hasMore || next == "" {
@@ -70,19 +71,34 @@ func (downloader *Downloader) hongguoPlanSeasons(ctx context.Context, bookID str
 		offset = next
 	}
 	if len(seasons) == 0 {
-		return nil, false
+		return nil, requestSucceeded
 	}
-	sort.Slice(seasons, func(i, j int) bool {
-		return seasons[i].SeasonIndex < seasons[j].SeasonIndex
-	})
 	return seasons, true
 }
 
-// parseHongguoPlanSeasons 解析 plan/v 的返回结构。
+// hongguoPlanGroupContainsBook 判断官方系列卡片是否包含当前作品 ID。
+func hongguoPlanGroupContainsBook(videoList []any, bookID string) bool {
+	if bookID == "" {
+		return false
+	}
+	for _, item := range videoList {
+		row, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if mapString(row, "series_id_str", "series_id") == bookID {
+			return true
+		}
+	}
+	return false
+}
+
+// parseHongguoPlanSeasons 解析 plan/v 的返回结构，只解析包含当前 bookID 的官方系列卡片。
 //
 // 实测返回格式：response.data 是卡片数组，每个卡片含
 // video_data[]（同系列各季，content_type=1004 正常季 / 1007 待上线预告）
 // 与 book_data[]（原著小说，跳过）；has_more/next_offset 用于分页。
+// 不同 show_type=547 卡片之间绝不合并。
 func parseHongguoPlanSeasons(result map[string]any, bookID string) ([]hongguoPlanSeason, bool, string) {
 	data := result["data"]
 	if data == nil {
@@ -93,24 +109,42 @@ func parseHongguoPlanSeasons(result map[string]any, bookID string) ([]hongguoPla
 	hasMore, nextOffset := "", ""
 	switch d := data.(type) {
 	case []any:
+		// data[] 可能包含多个同名作品卡片。只接受 show_type=547，
+		// 并且必须由当前 book_id 命中该卡片的 video_data。
+		// 绝不能把不同作者的同名系列扁平合并。
 		for _, item := range d {
 			m, ok := item.(map[string]any)
 			if !ok {
 				continue
 			}
-			if vd := anyList(m["video_data"]); len(vd) > 0 {
-				videoList = append(videoList, vd...)
+			showType := mapString(m, "show_type")
+			if showType != "" && showType != "547" {
+				continue
 			}
-			if hasMore == "" {
-				hasMore = mapString(m, "has_more")
-				nextOffset = mapString(m, "next_offset")
+			candidate := anyList(m["video_data"])
+			if !hongguoPlanGroupContainsBook(candidate, bookID) {
+				continue
 			}
+			videoList = candidate
+			hasMore = mapString(m, "has_more")
+			nextOffset = mapString(m, "next_offset")
+			break
 		}
 	case map[string]any:
+		showType := mapString(d, "show_type")
+		if showType != "" && showType != "547" {
+			return nil, false, ""
+		}
 		videoList = anyList(d["video_data"])
+		if !hongguoPlanGroupContainsBook(videoList, bookID) {
+			return nil, false, ""
+		}
 		hasMore = mapString(d, "has_more")
 		nextOffset = mapString(d, "next_offset")
 	default:
+		return nil, false, ""
+	}
+	if len(videoList) == 0 {
 		return nil, false, ""
 	}
 
@@ -129,14 +163,6 @@ func parseHongguoPlanSeasons(result map[string]any, bookID string) ([]hongguoPla
 			continue
 		}
 		seen[sid] = true
-		idx, _ := strconv.Atoi(mapString(row, "season_index"))
-		if idx < 1 || idx > hongguoSearchSeasonLimit {
-			idx = 1
-		}
-		episodes, _ := strconv.Atoi(mapString(row, "episode_cnt"))
-		if episodes < 0 {
-			episodes = 0
-		}
 		title := strings.TrimSpace(mapString(row, "title"))
 		if title == "" {
 			// 待上线季 title 为空，预约信息里带完整剧名。
@@ -144,8 +170,21 @@ func parseHongguoPlanSeasons(result map[string]any, bookID string) ([]hongguoPla
 				title = strings.TrimSpace(mapString(sub, "name"))
 			}
 		}
+		idx, _ := strconv.Atoi(mapString(row, "season_index"))
+		if idx < 1 || idx > hongguoSearchSeasonLimit {
+			// 仅在官方季号缺失时尝试从标题恢复；不能把未知季号默认为第 1 季。
+			if _, parsed, _, _ := hongguoSearchSeason(title); parsed > 0 {
+				idx = parsed
+			} else {
+				continue
+			}
+		}
 		if title == "" {
 			title = "第" + strconv.Itoa(idx) + "季"
+		}
+		episodes, _ := strconv.Atoi(mapString(row, "episode_cnt"))
+		if episodes < 0 {
+			episodes = 0
 		}
 		season := hongguoPlanSeason{
 			SeriesID:    sid,
