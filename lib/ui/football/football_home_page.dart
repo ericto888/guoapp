@@ -115,6 +115,7 @@ class _FootballHomePageState extends State<FootballHomePage> {
         preopen: false,
         initialPlan: plan,
         directResolver: () => repository.footballResolveChannel(channel.url),
+        recordProgress: false,
       );
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
