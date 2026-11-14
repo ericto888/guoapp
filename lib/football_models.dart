@@ -23,6 +23,7 @@ class FootballMatch {
     this.homeScore,
     this.awayScore,
     this.matchTime = '',
+    this.statusEvidence = '',
     this.halfTimeHomeScore,
     this.halfTimeAwayScore,
     this.cornerHome,
@@ -40,6 +41,7 @@ class FootballMatch {
   final int? homeScore;
   final int? awayScore;
   final String matchTime;
+  final String statusEvidence;
   final int? halfTimeHomeScore;
   final int? halfTimeAwayScore;
   final int? cornerHome;
@@ -59,6 +61,7 @@ class FootballMatch {
     homeScore: (json['homeScore'] as num?)?.toInt(),
     awayScore: (json['awayScore'] as num?)?.toInt(),
     matchTime: json['matchTime'] as String? ?? '',
+    statusEvidence: json['statusEvidence'] as String? ?? '',
     halfTimeHomeScore: (json['halfTimeHomeScore'] as num?)?.toInt(),
     halfTimeAwayScore: (json['halfTimeAwayScore'] as num?)?.toInt(),
     cornerHome: (json['cornerHome'] as num?)?.toInt(),
