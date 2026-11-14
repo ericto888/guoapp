@@ -583,9 +583,9 @@ func buildJRS33MatchFromRow(row *xhtml.Node, baseURL, league, home, away, timeTe
 
 var jrs33MediaExtensionRE = regexp.MustCompile("(?i)\\.(?:m3u8|mp4|m4v|mov|flv)(?:[?#][^\\s\"'<>]*)?")
 var jrs33MediaAttributeRE = regexp.MustCompile("(?i)(?:url|src|file|playurl|m3u8)\\s*[:=]\\s*[\"']([^\"']+)[\"']")
- 
- // parseJRS33MediaURL extracts explicit media resources from HTML and common player config.
- func parseJRS33IframeURLs(source, baseURL string) []string {
+
+// parseJRS33MediaURL extracts explicit media resources from HTML and common player config.
+func parseJRS33IframeURLs(source, baseURL string) []string {
 	doc, err := xhtml.Parse(strings.NewReader(source))
 	if err != nil { return nil }
 	seen := make(map[string]bool)
@@ -608,44 +608,44 @@ var jrs33MediaAttributeRE = regexp.MustCompile("(?i)(?:url|src|file|playurl|m3u8
 }
 
 func parseJRS33MediaURL(source, baseURL string) string {
- 	candidates := []string{}
- 	doc, err := xhtml.Parse(strings.NewReader(source))
- 	if err == nil {
- 		for _, n := range findJRS33Elements(doc, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode }) {
- 			if n.Data != "video" && n.Data != "source" && n.Data != "iframe" { continue }
- 			for _, key := range []string{"src", "data-src", "data-url"} {
- 				if value := jrs33Attr(n, key); value != "" { candidates = append(candidates, value) }
- 			}
- 		}
- 	}
- 	for _, match := range jrs33MediaAttributeRE.FindAllStringSubmatch(source, -1) {
- 		if len(match) > 1 { candidates = append(candidates, match[1]) }
- 	}
- 	for _, match := range jrs33MediaExtensionRE.FindAllStringIndex(source, -1) {
- 		start, end := match[0], match[1]
- 		left := start
+	candidates := []string{}
+	doc, err := xhtml.Parse(strings.NewReader(source))
+	if err == nil {
+		for _, n := range findJRS33Elements(doc, func(n *xhtml.Node) bool { return n.Type == xhtml.ElementNode }) {
+			if n.Data != "video" && n.Data != "source" && n.Data != "iframe" { continue }
+			for _, key := range []string{"src", "data-src", "data-url"} {
+				if value := jrs33Attr(n, key); value != "" { candidates = append(candidates, value) }
+			}
+		}
+	}
+	for _, match := range jrs33MediaAttributeRE.FindAllStringSubmatch(source, -1) {
+		if len(match) > 1 { candidates = append(candidates, match[1]) }
+	}
+	for _, match := range jrs33MediaExtensionRE.FindAllStringIndex(source, -1) {
+		start, end := match[0], match[1]
+		left := start
 		for left > 0 && !strings.ContainsRune("\"'<> \r\n\t", rune(source[left-1])) { left-- }
- 		if left < start { candidates = append(candidates, source[left:end]) }
- 	}
- 	for _, raw := range candidates {
- 		raw = strings.TrimSpace(raw)
+		if left < start { candidates = append(candidates, source[left:end]) }
+	}
+	for _, raw := range candidates {
+		raw = strings.TrimSpace(raw)
 		raw = strings.Trim(raw, "\"'")
 		raw = strings.ReplaceAll(raw, "\\/", "/")
 		raw = strings.ReplaceAll(raw, "\\u0026", "&")
- 		raw = stdhtml.UnescapeString(raw)
- 		if !jrs33MediaExtensionRE.MatchString(raw) { continue }
- 		base, baseErr := url.Parse(baseURL)
- 		ref, refErr := url.Parse(raw)
- 		if baseErr != nil || refErr != nil { continue }
- 		resolved := base.ResolveReference(ref)
- 		if resolved.Scheme != "https" || resolved.Hostname() == "" || resolved.User != nil || resolved.Port() != "" { continue }
- 		if ip := net.ParseIP(resolved.Hostname()); ip != nil { continue }
- 		return resolved.String()
- 	}
- 	return ""
- }
- 
- func parseJRS33Channels(source, baseURL string) []jrs33LiveChannel {
+		raw = stdhtml.UnescapeString(raw)
+		if !jrs33MediaExtensionRE.MatchString(raw) { continue }
+		base, baseErr := url.Parse(baseURL)
+		ref, refErr := url.Parse(raw)
+		if baseErr != nil || refErr != nil { continue }
+		resolved := base.ResolveReference(ref)
+		if resolved.Scheme != "https" || resolved.Hostname() == "" || resolved.User != nil || resolved.Port() != "" { continue }
+		if ip := net.ParseIP(resolved.Hostname()); ip != nil { continue }
+		return resolved.String()
+	}
+	return ""
+}
+
+func parseJRS33Channels(source, baseURL string) []jrs33LiveChannel {
 	doc, err := xhtml.Parse(strings.NewReader(source))
 	if err != nil { return nil }
 	containers := findJRS33Elements(doc, func(n *xhtml.Node) bool { return hasJRS33Class(n, "sub_playlist") })
