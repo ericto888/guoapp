@@ -29,13 +29,12 @@ const (
 )
 
 var (
-	jrs33IndexScriptRE = regexp.MustCompile(`(?i)<script\\b[^>]*\\bsrc\\s*=\\s*["']([^"']*index\\.js[^"']*)["'][^>]*>`)
-	jrs33PlayHostRE = regexp.MustCompile(`(?i)([a-zA-Z0-9_]+)\\s*:\\s*atob\\(\\s*["']([A-Za-z0-9+/=]+)["']\\s*\\)`)
-	jrs33PlayPathRE = regexp.MustCompile(`(?i)host\\s*\\+\\s*["']([^"']*)["']\\s*\\+\\s*id\\s*\\+\\s*["']([^"']*)["']`)
-	jrs33WriteRE = regexp.MustCompile(`(?s)document\\.write\\(\\s*'((?:[^'\\\\]|\\\\.)*(?:'\\s*\\+\\s*getPlayUrl\\("\\w+",\\s*"\\w+"\\)\\s*\\+\\s*'(?:[^'\\\\]|\\\\.)*)*)'\\s*\\);`)
-	jrs33GetPlayRE = regexp.MustCompile(`getPlayUrl\\("\\w+",\\s*"\\w+"\\)`)
-	jrs33DateTimeRE = regexp.MustCompile(`(?i)(\\d{1,2})[-月/](\\d{1,2})(?:日)?\\s+(\\d{1,2}):(\\d{2})`)
-	jrs33ScoreRE = regexp.MustCompile(`(\\d{1,2})\\s*[:：-]\\s*(\\d{1,2})`)
+	jrs33IndexScriptRE = regexp.MustCompile(`(?i)<script\b[^>]*\bsrc\s*=\s*["']([^"']*index\.js[^"']*)["'][^>]*>`)
+	jrs33PlayHostRE = regexp.MustCompile(`(?i)([a-zA-Z0-9_]+)\s*:\s*atob\(\s*["']([A-Za-z0-9+/=]+)["']\s*\)`)
+	jrs33PlayPathRE = regexp.MustCompile(`(?i)host\s*\+\s*["']([^"']*)["']\s*\+\s*id\s*\+\s*["']([^"']*)["']`)
+	jrs33WriteRE = regexp.MustCompile(`(?s)document\.write\(\s*'((?:[^'\\]|\\.)*(?:'\s*\+\s*getPlayUrl\("\w+",\s*"\w+"\)\s*\+\s*'(?:[^'\\]|\\.)*)*)'\s*\);`)
+	jrs33DateTimeRE = regexp.MustCompile(`(?i)(\d{1,2})[-月/](\d{1,2})(?:日)?\s+(\d{1,2}):(\d{2})`)
+	jrs33ScoreRE = regexp.MustCompile(`(\d{1,2})\s*[:：-]\s*(\d{1,2})`)
 )
 
 type jrs33LiveChannel struct {
@@ -206,7 +205,7 @@ func (p *jrs33Provider) expandIndexScript(ctx context.Context, home, baseURL str
 	writes := jrs33WriteRE.FindAllStringSubmatch(script, -1)
 	if len(writes) == 0 { return home, errors.New("赛事脚本未找到 document.write 列表") }
 	var output strings.Builder
-	callRE := regexp.MustCompile(`getPlayUrl\\("(\\w+)",\\s*"(\\w+)"\\)`)
+	callRE := regexp.MustCompile(`getPlayUrl\("(\w+)",\s*"(\w+)"\)`)
 	for _, write := range writes {
 		fragment := callRE.ReplaceAllStringFunc(write[1], func(call string) string {
 			part := callRE.FindStringSubmatch(call)
@@ -216,7 +215,7 @@ func (p *jrs33Provider) expandIndexScript(ctx context.Context, home, baseURL str
 		fragment = strings.ReplaceAll(fragment, `\\'`, `'`)
 		fragment = strings.ReplaceAll(fragment, `\\\\`, `\\`)
 		output.WriteString(fragment)
-		output.WriteByte('\\n')
+		output.WriteByte('\n')
 	}
 	if output.Len() == 0 { return home, errors.New("赛事脚本没有生成比赛列表") }
 	return output.String(), nil
@@ -318,7 +317,7 @@ func jrs33NodeText(n *xhtml.Node) string {
 
 func cleanJRS33Text(value string) string {
 	value = stdhtml.UnescapeString(value)
-	return strings.Join(strings.Fields(strings.ReplaceAll(value, "\\u00a0", " ")), " ")
+	return strings.Join(strings.Fields(strings.ReplaceAll(value, " ", " ")), " ")
 }
 
 func resolveJRS33Link(baseURL, raw string) string {
