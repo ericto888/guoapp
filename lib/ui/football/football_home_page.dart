@@ -4,6 +4,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../football_models.dart';
 import '../app_scope.dart';
 
+enum _FootballMatchFilter { all, live, upcoming, finished }
+
 /// 足球赛事中心首页。数据通过 Go 核心获取，不依赖影视剧库。
 class FootballHomePage extends StatefulWidget {
   const FootballHomePage({super.key});
@@ -15,6 +17,7 @@ class FootballHomePage extends StatefulWidget {
 class _FootballHomePageState extends State<FootballHomePage> {
   late Future<List<FootballMatch>> _matches;
   var _loaded = false;
+  _FootballMatchFilter _filter = _FootballMatchFilter.all;
   final Map<String, Future<List<FootballLiveChannel>>> _channelLoads = {};
 
   @override
@@ -43,6 +46,28 @@ class _FootballHomePageState extends State<FootballHomePage> {
       ).repository.footballMatchChannels(matchId);
     });
   }
+
+  Widget _filterChip(
+    String label,
+    _FootballMatchFilter filter,
+    int count,
+  ) {
+    return ChoiceChip(
+      label: Text('$label $count'),
+      selected: _filter == filter,
+      onSelected: (_) => setState(() => _filter = filter),
+      showCheckmark: false,
+    );
+  }
+
+  String _matchStatusLabel(String status) => switch (status) {
+    'live' => '直播中',
+    'halftime' => '中场',
+    'finished' => '已结束',
+    'postponed' => '延期',
+    'cancelled' => '已取消',
+    _ => '未开始',
+  };
 
   Widget _channelTile(BuildContext context, FootballLiveChannel channel) {
     return ListTile(
@@ -132,20 +157,86 @@ class _FootballHomePageState extends State<FootballHomePage> {
                 ],
               );
             }
+            final liveCount = matches.where((m) => m.isLive).length;
+            final upcomingCount = matches
+                .where((m) => m.status == 'scheduled')
+                .length;
+            final finishedCount = matches
+                .where((m) => m.status == 'finished')
+                .length;
+            final visibleMatches = matches.where((match) {
+              return switch (_filter) {
+                _FootballMatchFilter.all => true,
+                _FootballMatchFilter.live => match.isLive,
+                _FootballMatchFilter.upcoming => match.status == 'scheduled',
+                _FootballMatchFilter.finished => match.status == 'finished',
+              };
+            }).toList();
+
             return ListView.separated(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(16),
-              itemCount: matches.length,
+              itemCount: visibleMatches.isEmpty ? 2 : visibleMatches.length + 1,
               separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
-                final match = matches[index];
+                if (index == 0) {
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _filterChip('全部', _FootballMatchFilter.all, matches.length),
+                        const SizedBox(width: 8),
+                        _filterChip('直播中', _FootballMatchFilter.live, liveCount),
+                        const SizedBox(width: 8),
+                        _filterChip('未开始', _FootballMatchFilter.upcoming, upcomingCount),
+                        const SizedBox(width: 8),
+                        _filterChip('已结束', _FootballMatchFilter.finished, finishedCount),
+                      ],
+                    ),
+                  );
+                }
+                if (visibleMatches.isEmpty) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 56),
+                    child: Center(
+                      child: Text(
+                        '当前分类暂无赛事',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                final match = visibleMatches[index - 1];
                 return Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Text(match.league, style: theme.textTheme.labelMedium),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                match.league.isEmpty ? '其他赛事' : match.league,
+                                style: theme.textTheme.labelMedium,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              _matchStatusLabel(match.status),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: match.isLive
+                                    ? theme.colorScheme.error
+                                    : theme.colorScheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
                         const SizedBox(height: 12),
                         Row(
                           children: [
