@@ -1,0 +1,33 @@
+name: Football Flutter checks
+
+on:
+  push:
+    branches:
+      - feature/football-center-phase1
+    paths:
+      - "lib/core_bridge.dart"
+      - "lib/football_models.dart"
+      - "lib/ui/football/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+      - ".github/workflows/football-flutter-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  flutter-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.9"
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Check Dart formatting
+        run: dart format --output=none --set-exit-if-changed lib/core_bridge.dart lib/football_models.dart lib/ui/football
+      - name: Analyze football integration
+        run: dart analyze lib/core_bridge.dart lib/football_models.dart lib/ui/football
