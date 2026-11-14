@@ -867,7 +867,9 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                       ),
                     ),
                     Text(
-                      '第 ${session.episode.number} 集',
+                      session.detail.drama.source == 'football'
+                          ? '当前线路：${session.episode.title}'
+                          : '第 ${session.episode.number} 集',
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: .78),
                         fontSize: 12,
@@ -1360,6 +1362,9 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
                   ? EpisodeGrid(
                       episodes: session.detail.episodes,
                       current: session.index,
+                      labelBuilder: session.detail.drama.source == 'football'
+                          ? (episode) => episode.title
+                          : null,
                       selecting: false,
                       selected: const {},
                       touch: true,
