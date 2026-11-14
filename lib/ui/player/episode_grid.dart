@@ -255,7 +255,9 @@ class _EpisodeGridState extends State<EpisodeGrid> {
                             episode: _episodes[index],
                             label: widget.labelBuilder?.call(_episodes[index]) ?? '${_episodes[index].number}',
                             current: index == widget.current,
-                            watched: index < widget.current,
+                            watched:
+                                widget.labelBuilder == null &&
+                                index < widget.current,
                             selected: selecting
                                 ? _selected.contains(index)
                                 : null,
