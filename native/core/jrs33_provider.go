@@ -649,6 +649,7 @@ const jrs33PlayerUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac O
 
 var jrs33MediaExtensionRE = regexp.MustCompile("(?i)\\.(?:m3u8|mp4|m4v|mov|flv)(?:[?#][^\\s\"'<>]*)?")
 var jrs33MediaAttributeRE = regexp.MustCompile("(?i)(?:url|src|file|playurl|m3u8)\\s*[:=]\\s*[\"']([^\"']+)[\"']")
+var jrs33MediaBase64RE = regexp.MustCompile(`(?i)atob\(\s*["']([A-Za-z0-9+/=]{16,})["']\s*\)`)
 
 // parseJRS33MediaURL extracts explicit media resources from HTML and common player config.
 func parseJRS33IframeURLs(source, baseURL string) []string {
@@ -684,14 +685,29 @@ func parseJRS33MediaURL(source, baseURL string) string {
 			}
 		}
 	}
-	for _, match := range jrs33MediaAttributeRE.FindAllStringSubmatch(source, -1) {
-		if len(match) > 1 { candidates = append(candidates, match[1]) }
+	// Some JRS33 player templates wrap their configuration or complete player
+	// script in atob(). Decode only literal Base64 payloads; never execute page JS.
+	decodedSources := []string{source}
+	for _, match := range jrs33MediaBase64RE.FindAllStringSubmatch(source, -1) {
+		if len(match) < 2 { continue }
+		decoded, decodeErr := base64.StdEncoding.DecodeString(match[1])
+		if decodeErr != nil {
+			decoded, decodeErr = base64.RawStdEncoding.DecodeString(strings.TrimRight(match[1], "="))
+		}
+		if decodeErr == nil && len(decoded) > 0 && len(decoded) <= 1<<20 {
+			decodedSources = append(decodedSources, string(decoded))
+		}
 	}
-	for _, match := range jrs33MediaExtensionRE.FindAllStringIndex(source, -1) {
-		start, end := match[0], match[1]
-		left := start
-		for left > 0 && !strings.ContainsRune("\"'<> \r\n\t", rune(source[left-1])) { left-- }
-		if left < start { candidates = append(candidates, source[left:end]) }
+	for _, candidateSource := range decodedSources {
+		for _, match := range jrs33MediaAttributeRE.FindAllStringSubmatch(candidateSource, -1) {
+			if len(match) > 1 { candidates = append(candidates, match[1]) }
+		}
+		for _, match := range jrs33MediaExtensionRE.FindAllStringIndex(candidateSource, -1) {
+			start, end := match[0], match[1]
+			left := start
+			for left > 0 && !strings.ContainsRune("\"'<> \r\n\t", rune(candidateSource[left-1])) { left-- }
+			if left < start { candidates = append(candidates, candidateSource[left:end]) }
+		}
 	}
 	for _, raw := range candidates {
 		raw = strings.TrimSpace(raw)
