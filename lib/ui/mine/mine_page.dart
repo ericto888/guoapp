@@ -10,6 +10,7 @@ import '../app_scope.dart';
 import '../detail/detail_page.dart';
 import '../downloads/downloads_page.dart';
 import '../history/history_page.dart';
+import '../football/football_home_page.dart';
 import '../shell/app_shell.dart';
 import '../settings/settings_page.dart';
 import '../theme/motion.dart';
@@ -72,6 +73,15 @@ class MinePage extends StatelessWidget {
   Widget _userCard(BuildContext context) =>
       _UserCard(store: store, onTap: () => openUsers(context, store));
 
+  void _openFootball(BuildContext context) => openPage<void>(
+    context,
+    (_) => const FootballHomePage(),
+  );
+
+  Widget _footballEntry(BuildContext context) => _FootballEntry(
+    onTap: () => _openFootball(context),
+  );
+
   Widget _settings(BuildContext context) => _SettingsEntry(
     onTap: () => openPage<void>(context, (_) => SettingsPage(store: store)),
   );
@@ -110,6 +120,10 @@ class MinePage extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: _userCard(context),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: _footballEntry(context),
         ),
         SectionHeader(
           title: '最近观看',
@@ -168,6 +182,8 @@ class MinePage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _userCard(context),
+            const SizedBox(height: 12),
+            _footballEntry(context),
             if (store.canDownload) ...[
               SectionHeader(
                 title: '下载',
@@ -304,6 +320,14 @@ class MinePage extends StatelessWidget {
                         subtitle:
                             '${store.profile.admin ? '管理员' : '普通用户'} · 切换用户',
                         onTap: () => openUsers(context, store),
+                      ),
+                    ),
+                    Expanded(
+                      child: _TelevisionEntry(
+                        icon: Icons.sports_soccer_rounded,
+                        title: '足球赛事',
+                        subtitle: '赛程、比分与直播入口',
+                        onTap: () => _openFootball(context),
                       ),
                     ),
                     Expanded(
@@ -684,6 +708,47 @@ class _AllHistoryTile extends StatelessWidget {
                     color: colors.onSurfaceVariant,
                   ),
                 ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FootballEntry extends StatelessWidget {
+  const _FootballEntry({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return FocusRing(
+      radius: 18,
+      child: Material(
+        color: colors.surfaceContainer,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Icon(Icons.sports_soccer_rounded, color: colors.primary),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('足球赛事', style: TextStyle(fontWeight: FontWeight.w700)),
+                      SizedBox(height: 2),
+                      Text('赛程、比分与直播入口'),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: colors.onSurfaceVariant),
               ],
             ),
           ),
