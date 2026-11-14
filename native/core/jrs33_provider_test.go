@@ -299,8 +299,49 @@ func TestJRS33RealHomepageScoreTitleIsNotMatchMinute(t *testing.T) {
 	if matches[0].Status != "unknown" || matches[0].MatchTime != "" {
 		t.Fatalf("real homepage placeholder parsed as status/time %q/%q", matches[0].Status, matches[0].MatchTime)
 	}
-	if matches[0].HomeScore != nil || matches[0].AwayScore != nil {
-		t.Fatalf("placeholder title must not become score: %v:%v", matches[0].HomeScore, matches[0].AwayScore)
+	if matches[0].HomeScore == nil || matches[0].AwayScore == nil || *matches[0].HomeScore != 2 || *matches[0].AwayScore != 2 {
+		t.Fatalf("team em.bf title values should parse as score 2:2, got %v:%v", matches[0].HomeScore, matches[0].AwayScore)
+	}
+}
+
+func TestJRS33ActualHomepageRowParsesScoresAndChannelsWithoutGuessingLive(t *testing.T) {
+	html := `<ul class="item play d-touch active" data-lid="4625690,1,4625690" data-stype="zqlq">
+<li class="lab_events"><span class="name">U17亚洲杯</span></li>
+<li class="lab_time">11-14 16:00</li>
+<li class="lab_team_home"><strong class="name">伊拉克U17</strong><em class="bf" title="2"></em><span class="avatar"></span></li>
+<li class="lab_vs active"><div class="sub_status"><em class="spin_ant"></em></div></li>
+<li class="lab_team_away"><strong class="name">中国台北U17</strong><em class="bf" title="2"></em><span class="avatar"></span></li>
+<li class="lab_bc"></li><li class="lab_jq"></li>
+<li class="lab_channel">
+<a class="item ok_kqt type1" href="http://play.sportsteam368.com/play/steam826532.html"><em class="icon-play-circle"></em><strong>直播①</strong></a>
+<a class="item ok type1 me" href="http://play.jgdhds.com/play/steam826533.html"><em class="icon-play-circle"></em><strong>直播②</strong></a>
+<a class="item ok type1 me" href="http://play.sportsteam7777.com/play/steam826534.html"><em class="icon-play-circle"></em><strong>直播③</strong></a>
+</li>
+<a class="me" href="/match/u17-iraq-taipei.html">赛事详情</a>
+</ul>`
+	matches := parseJRS33Home(html, "https://www.jrkan.com/")
+	if len(matches) != 1 { t.Fatalf("matches=%d, want 1", len(matches)) }
+	got := matches[0]
+	if got.League != "U17亚洲杯" || got.HomeTeam != "伊拉克U17" || got.AwayTeam != "中国台北U17" {
+		t.Fatalf("unexpected fixture identity: %#v", got)
+	}
+	if got.Status != "unknown" || got.MatchTime != "" {
+		t.Fatalf("active CSS/spinner must not imply live status or minute: %q/%q", got.Status, got.MatchTime)
+	}
+	if got.HomeScore == nil || got.AwayScore == nil || *got.HomeScore != 2 || *got.AwayScore != 2 {
+		t.Fatalf("score badge title not parsed: %v:%v", got.HomeScore, got.AwayScore)
+	}
+	if got.DetailURL != "https://www.jrkan.com/match/u17-iraq-taipei.html" || got.ID != "jrs33:match/u17-iraq-taipei.html" {
+		t.Fatalf("channel anchor was mistaken for detail link: id=%q detail=%q", got.ID, got.DetailURL)
+	}
+	if len(got.Channels) != 3 {
+		t.Fatalf("channels=%d, want 3: %#v", len(got.Channels), got.Channels)
+	}
+	if got.Channels[0].Name != "直播①" || got.Channels[0].URL != "https://play.sportsteam368.com/play/steam826532.html" {
+		t.Fatalf("first channel mismatch: %#v", got.Channels[0])
+	}
+	if !strings.Contains(got.StatusEvidence, "lab_vs active") || !strings.Contains(got.StatusEvidence, "spin_ant") {
+		t.Fatalf("missing source status evidence: %q", got.StatusEvidence)
 	}
 }
 
