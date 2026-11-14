@@ -2159,6 +2159,7 @@ class _EpisodeSheetState extends State<_EpisodeSheet> {
   PlaybackSession get _session => widget.session;
 
   bool get _canDownload =>
+      detail.drama.source != 'football' &&
       AppScope.of(context).repository.supportsDownloads &&
       widget.store.canDownload;
 
