@@ -1,0 +1,26 @@
+name: Football module Go tests
+
+on:
+  push:
+    branches:
+      - feature/football-center-phase1
+    paths:
+      - "native/**"
+      - ".github/workflows/football-go-test.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  go-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: native/go.mod
+          cache-dependency-path: native/go.sum
+      - name: Run Go tests
+        working-directory: native
+        run: go test -race ./...
