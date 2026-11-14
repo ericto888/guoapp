@@ -734,7 +734,6 @@ class NativeRepository extends AppRepository {
     ];
   }
 
-
   @override
   Future<PlaybackPlan> footballResolveChannel(String channelUrl) async {
     final result = await _call({
