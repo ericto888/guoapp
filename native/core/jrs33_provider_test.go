@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	xhtml "golang.org/x/net/html"
 )
 
 
@@ -325,6 +327,26 @@ func TestFetchLiveJRS33SourceSnapshot(t *testing.T) {
 	}
 	found := false
 	for _, base := range bases {
+		if base == "https://www.jrkan.com" {
+			home, finalURL, homeErr := provider.getText(ctx, base+"/?lan=0", "")
+			if homeErr == nil {
+				expanded, expandErr := provider.expandIndexScript(ctx, home, finalURL)
+				if expandErr == nil { home = expanded }
+				doc, parseErr := xhtml.Parse(strings.NewReader(home))
+				if parseErr == nil {
+					rows := findJRS33Elements(doc, func(n *xhtml.Node) bool { return hasJRS33Class(n, "d-touch") })
+					t.Logf("RAW_HOME final=%q bytes=%d rows=%d expanded=%v", finalURL, len(home), len(rows), expandErr == nil)
+					for i, row := range rows {
+						if i >= 4 { break }
+						var markup strings.Builder
+						_ = xhtml.Render(&markup, row)
+						t.Logf("RAW_ROW[%d] %s", i, markup.String())
+					}
+				}
+			} else {
+				t.Logf("RAW_HOME_ERROR %v", homeErr)
+			}
+		}
 		matches, err := provider.fetchMatches(ctx, base)
 		if err != nil {
 			t.Logf("SOURCE %s ERROR %v", base, err)
