@@ -173,6 +173,7 @@ type nativePlan struct {
 
 type nativeEngine struct {
 	jrs33Domains     *jrs33DomainManager
+	jrs33Provider    *jrs33Provider
 	settingsMu       sync.Mutex
 	settings         nativeResourceSettings
 	readMu           sync.Mutex
@@ -315,6 +316,7 @@ func newNativeEngine(directory, downloads string) (*nativeEngine, error) {
 		}}
 	engine := &nativeEngine{downloader: d, directory: directory, defaultDownloads: nativeDefaultDownloads(directory), catalogs: map[string][]nativeDrama{}, catalogStates: map[string]nativeCatalogState{}}
 	engine.jrs33Domains = newJRS33DomainManager(d.client, directory)
+	engine.jrs33Provider = newJRS33Provider(engine.jrs33Domains)
 	if filepath.IsAbs(downloads) {
 		engine.defaultDownloads = filepath.Clean(downloads)
 	}
@@ -403,7 +405,7 @@ func nativeDispatch(input nativeInput) (any, error) {
 	}
 	switch input.Action {
 	case "footballMatches":
-		return engine.footballMatches(ctx)
+		return engine.footballMatches(ctx, input.Force)
 	case "updateSystemProxy":
 		return true, engine.updateSystemProxy(input.SystemProxy)
 	case "resourceSettings":
