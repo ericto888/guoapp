@@ -2,12 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import '../../football_models.dart';
 import '../../local_store.dart';
 import '../../models.dart';
 import '../player/playback_handle.dart';
-import '../player/playback_page.dart';
 import '../app_scope.dart';
+import '../player/playback_page.dart';
 
 enum _FootballMatchFilter { all, live, upcoming, finished }
 
@@ -98,7 +99,7 @@ class _FootballHomePageState extends State<FootballHomePage> {
       final plan = await repository.footballResolveChannel(channel.url);
       if (!context.mounted) return;
       final drama = Drama(
-        id: 'football:\${channel.url}',
+        id: 'football:${channel.url}',
         source: 'football',
         title: channel.name,
         episodes: 1,
