@@ -148,7 +148,7 @@ func (p *jrs33Provider) fetchMatches(ctx context.Context, base string) ([]jrs33M
 	matches := parseJRS33Home(home, finalURL)
 	if len(matches) > jrs33MaxMatches { matches = matches[:jrs33MaxMatches] }
 	if len(matches) == 0 {
-		if hasIndexScript && expandErr != nil && !strings.Contains(home, "暂无赛事") {
+		if hasIndexScript && expandErr != nil {
 			return nil, fmt.Errorf("JRS33 动态赛事列表解析失败: %w", expandErr)
 		}
 		if !hasIndexScript && !strings.Contains(home, "暂无赛事") && !strings.Contains(home, "隐藏 0 场赛事") {
