@@ -708,7 +708,8 @@ class NativeRepository extends AppRepository {
     });
     if (result['configured'] == false) {
       final warning = result['warning'] as String? ?? 'JRS33 赛事源暂时不可用';
-      throw AppFailure(warning);
+      final dataStatus = result['dataStatus'] as String? ?? '';
+      throw AppFailure(warning, code: dataStatus);
     }
     return [
       for (final row in result['items'] as List? ?? const [])
