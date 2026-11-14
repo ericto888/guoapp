@@ -1,4 +1,17 @@
 /// 足球赛事领域模型。独立于影视 Drama / Episode 模型。
+class FootballLiveChannel {
+  const FootballLiveChannel({required this.name, required this.url});
+
+  final String name;
+  final String url;
+
+  factory FootballLiveChannel.fromJson(Map<String, dynamic> json) =>
+      FootballLiveChannel(
+        name: json['name'] as String? ?? '直播频道',
+        url: json['url'] as String? ?? '',
+      );
+}
+
 class FootballMatch {
   const FootballMatch({
     required this.id,
@@ -9,6 +22,8 @@ class FootballMatch {
     this.status = 'scheduled',
     this.homeScore,
     this.awayScore,
+    this.detailUrl = '',
+    this.channels = const [],
   });
 
   final String id;
@@ -19,6 +34,8 @@ class FootballMatch {
   final String status;
   final int? homeScore;
   final int? awayScore;
+  final String detailUrl;
+  final List<FootballLiveChannel> channels;
 
   bool get isLive => status == 'live' || status == 'halftime';
 
@@ -31,5 +48,10 @@ class FootballMatch {
     status: json['status'] as String? ?? 'scheduled',
     homeScore: (json['homeScore'] as num?)?.toInt(),
     awayScore: (json['awayScore'] as num?)?.toInt(),
+    detailUrl: json['detailUrl'] as String? ?? '',
+    channels: [
+      for (final item in json['channels'] as List? ?? const [])
+        FootballLiveChannel.fromJson(Map<String, dynamic>.from(item as Map)),
+    ],
   );
 }
