@@ -3,12 +3,15 @@ package core
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	stdhtml "html"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -55,18 +58,27 @@ type jrs33Match struct {
 
 type jrs33Provider struct {
 	domains *jrs33DomainManager
+	cachePath string
 	mu sync.Mutex
+	loaded bool
 	cached []jrs33Match
 	cachedAt time.Time
 }
 
+type jrs33MatchCache struct {
+	Version int `json:"version"`
+	CachedAt time.Time `json:"cachedAt"`
+	Items []jrs33Match `json:"items"`
+}
+
 func newJRS33Provider(domains *jrs33DomainManager) *jrs33Provider {
-	return &jrs33Provider{domains: domains}
+	return &jrs33Provider{domains: domains, cachePath: filepath.Join(filepath.Dir(domains.cachePath), "matches.json")}
 }
 
 func (p *jrs33Provider) matches(ctx context.Context, force bool) ([]jrs33Match, string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.loadCacheLocked()
 	now := time.Now()
 	if !force && len(p.cached) > 0 {
 		ttl := jrs33MatchesCacheIdleTTL
@@ -96,7 +108,23 @@ func (p *jrs33Provider) matches(ctx context.Context, force bool) ([]jrs33Match, 
 	}
 	p.cached = cloneJRS33Matches(matches)
 	p.cachedAt = now
+	cacheBody, _ := json.Marshal(jrs33MatchCache{Version: 1, CachedAt: now, Items: p.cached})
+	_ = writeNativeCacheFile(p.cachePath, cacheBody)
 	return matches, "", nil
+}
+
+func (p *jrs33Provider) loadCacheLocked() {
+	if p.loaded { return }
+	p.loaded = true
+	body, err := os.ReadFile(p.cachePath)
+	if err != nil || len(body) > 4<<20 { return }
+	var cache jrs33MatchCache
+	if json.Unmarshal(body, &cache) != nil || cache.Version != 1 || cache.CachedAt.IsZero() { return }
+	for _, item := range cache.Items {
+		if item.ID == "" || item.HomeTeam == "" || item.AwayTeam == "" { return }
+	}
+	p.cached = cloneJRS33Matches(cache.Items)
+	p.cachedAt = cache.CachedAt
 }
 
 func cloneJRS33Matches(matches []jrs33Match) []jrs33Match {
