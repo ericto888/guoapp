@@ -33,8 +33,8 @@ var (
 	jrs33IndexScriptRE = regexp.MustCompile(`(?i)<script\b[^>]*\bsrc\s*=\s*["']([^"']*index\.js[^"']*)["'][^>]*>`)
 	jrs33PlayHostRE = regexp.MustCompile(`(?i)([a-zA-Z0-9_]+)\s*:\s*atob\(\s*["']([A-Za-z0-9+/=]+)["']\s*\)`)
 	jrs33PlayPathRE = regexp.MustCompile(`(?i)host\s*\+\s*["']([^"']*)["']\s*\+\s*id\s*\+\s*["']([^"']*)["']`)
-	jrs33WriteRE = regexp.MustCompile(`(?s)document\.write\(\s*'((?:[^'\\]|\\.)*(?:'\s*\+\s*getPlayUrl\("\w+",\s*"\w+"\)\s*\+\s*'(?:[^'\\]|\\.)*)*)'\s*\);`)
-	jrs33DateTimeRE = regexp.MustCompile(`(?i)(\d{1,2})[-月/](\d{1,2})(?:日)?\s+(\d{1,2}):(\d{2})`)
+	jrs33WriteRE = regexp.MustCompile(`(?s)document\.write\(\s*'(([^'\\]|\\.)*('\s*\+\s*getPlayUrl\("\w+",\s*"\w+"\)\s*\+\s*'([^'\\]|\\.)*)*)'\s*\);`)
+	jrs33DateTimeRE = regexp.MustCompile(`(?i)(\d{1,2})[-月/]\d{1,2}日?\s+(\d{1,2}):(\d{2})`)
 	jrs33ScoreRE = regexp.MustCompile(`(\d{1,2})\s*[:：-]\s*(\d{1,2})`)
 )
 
