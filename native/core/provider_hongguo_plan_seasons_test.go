@@ -12,20 +12,20 @@ func TestParseHongguoPlanSeasonsOfficialSeries(t *testing.T) {
 		"data": []any{
 			map[string]any{
 				"show_type": 547,
-				"has_more": "0",
+				"has_more":  "0",
 				"book_data": []any{
 					map[string]any{"book_name": "持械入宋", "author": "茶根儿"},
 				},
 				"video_data": []any{
 					map[string]any{
-						"series_id":    "7671966197985856536",
-						"title":        "持械入宋：第一季",
-						"season_index": 1,
-						"episode_cnt":  100,
+						"series_id":          "7671966197985856536",
+						"title":              "持械入宋：第一季",
+						"season_index":       1,
+						"episode_cnt":        100,
 						"first_visible_time": "1794700800",
-						"cover":        "https://example.test/1.jpg",
-						"video_desc":   "第一季简介",
-						"disable_play": false,
+						"cover":              "https://example.test/1.jpg",
+						"video_desc":         "第一季简介",
+						"disable_play":       false,
 					},
 					map[string]any{
 						"series_id":    "7676706788724460568",
@@ -49,7 +49,10 @@ func TestParseHongguoPlanSeasonsOfficialSeries(t *testing.T) {
 			},
 		},
 	}
-	seasons, hasMore, next := parseHongguoPlanSeasons(result, "7671966197985856536")
+	seasons, hasMore, next, bookOnly := parseHongguoPlanSeasons(result, "7671966197985856536")
+	if bookOnly {
+		t.Fatal("video group must not be treated as book-only")
+	}
 	if hasMore || next != "" {
 		t.Fatalf("has_more/next = %v/%q", hasMore, next)
 	}
@@ -88,7 +91,7 @@ func TestParseHongguoPlanSeasonsDropsDisabledPaidSeasons(t *testing.T) {
 			},
 		},
 	}
-	seasons, _, _ := parseHongguoPlanSeasons(result, "1")
+	seasons, _, _, _ := parseHongguoPlanSeasons(result, "1")
 	if len(seasons) != 2 {
 		t.Fatalf("seasons = %+v", seasons)
 	}
@@ -97,7 +100,6 @@ func TestParseHongguoPlanSeasonsDropsDisabledPaidSeasons(t *testing.T) {
 		t.Fatalf("upcoming season must be kept: %+v", seasons[1])
 	}
 }
-
 
 func TestParseHongguoPlanSeasonsKeepsSameTitleAuthorGroupsSeparate(t *testing.T) {
 	makeGroup := func(ids []string, prefix string) map[string]any {
@@ -140,7 +142,7 @@ func TestParseHongguoPlanSeasonsKeepsSameTitleAuthorGroupsSeparate(t *testing.T)
 		{name: "作者B从第三季进入", id: seriesB[2], want: 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			seasons, hasMore, _ := parseHongguoPlanSeasons(result, tc.id)
+			seasons, hasMore, _, _ := parseHongguoPlanSeasons(result, tc.id)
 			if hasMore {
 				t.Fatal("unexpected pagination")
 			}
@@ -165,13 +167,32 @@ func TestParseHongguoPlanSeasonsKeepsSameTitleAuthorGroupsSeparate(t *testing.T)
 	}
 }
 
+func TestParseHongguoPlanSeasonsBookOnlyResponse(t *testing.T) {
+	// 实测：从「京师第一纨绔第十四季」进入时，plan/v 只带回原著小说
+	// （video_data=0、book_data=1）。这种响应不能被当成「官方确认无系列」，
+	// 否则季列表会直接为空。
+	result := map[string]any{"data": []any{
+		map[string]any{
+			"show_type":  547,
+			"video_data": []any{},
+			"book_data": []any{
+				map[string]any{"book_id": "7427893923520973849", "book_name": "京师第一纨绔"},
+			},
+		},
+	}}
+	seasons, _, _, bookOnly := parseHongguoPlanSeasons(result, "7704629770473966617")
+	if len(seasons) != 0 || !bookOnly {
+		t.Fatalf("seasons=%+v bookOnly=%v, want empty seasons + bookOnly", seasons, bookOnly)
+	}
+}
+
 func TestParseHongguoPlanSeasonsRejectsNonSeriesCell(t *testing.T) {
 	result := map[string]any{"data": []any{
 		map[string]any{"show_type": 1004, "video_data": []any{
 			map[string]any{"series_id": "123456789", "title": "测试第一季", "season_index": 1},
 		}},
 	}}
-	if seasons, _, _ := parseHongguoPlanSeasons(result, "123456789"); len(seasons) != 0 {
+	if seasons, _, _, _ := parseHongguoPlanSeasons(result, "123456789"); len(seasons) != 0 {
 		t.Fatalf("non-series cell must be ignored: %+v", seasons)
 	}
 }

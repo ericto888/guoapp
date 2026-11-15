@@ -15,10 +15,15 @@ import (
 // 有官方季字段的站源（红果）直接按官方分组，其余站源沿用标题里的 第N季/第N部。
 const (
 	hongguoSeasonLookupTimeout = 10 * time.Second
-	hongguoSeasonDateTimeout   = 2500 * time.Millisecond
+	hongguoSeasonDateTimeout   = 5 * time.Second
 	hongguoSeasonDateTTL       = 24 * time.Hour
 	hongguoSeasonEnrichLimit   = 6
 	hongguoSeasonEnrichWorkers = 4
+	// 官方 plan/v 分组没有日期，已上线季要逐季查网页详情补 first_visible_time；
+	// 一次最多补 20 季，避免异常数据把详情页拖成串行请求。
+	hongguoSeasonOfficialDateLimit = 20
+	// 补日期是逐季请求，走独立通道并行，避免被单源串行限流拖到超时。
+	hongguoSeasonDateLanes = 4
 	// 官方季分组：同 related_album_id 才是同一部剧的不同季。
 	// 红果单通道限流是「并发 1、间隔 250ms」，20 个候选串行要 5 秒，
 	// 这里用多条独立通道并行校验，单次详情结果缓存 6 小时。
@@ -137,7 +142,7 @@ func (engine *nativeEngine) nativeSeasons(ctx context.Context, input nativeInput
 		}
 		// 搜索结果常常缺上线日期，缺日期就没法判断同名不同剧；
 		// 这里并发补查详情日期，并用缓存避免重复请求。
-		engine.enrichSeasonDates(lookup, source, names, adapter.date)
+		engine.enrichSeasonDates(lookup, source, names, adapter.date, seasonDateEnrichLimit(source))
 		found = hongguoSeasonList(names, current, unit, key, input.Drama)
 	}
 	// 官方骨架（plan/v）与搜索聚合互补：骨架里的季号不被搜索结果覆盖，
@@ -349,11 +354,24 @@ func (engine *nativeEngine) hongguoOfficialSeasons(
 			Title:       strings.TrimSpace(current.Title),
 			SeasonIndex: currentIndex,
 			Episodes:    current.Episodes,
+			OnlineDate:  current.OnlineDate,
 		})
 		// 重新排序
 		sort.Slice(seasons, func(i, j int) bool {
 			return seasons[i].SeasonIndex < seasons[j].SeasonIndex
 		})
+	}
+	// plan/v 的 video_data 没有任何时间字段：待上线季只有「预计X月X日上线」文案，
+	// 已上线季完全没有日期。已上线季用网页详情的 first_visible_time 补齐
+	// （当前季优先用请求里已知的日期，省一次请求）。
+	// 禁止使用 create_time 或原著小说（book_data）的时间戳。
+	for index := range seasons {
+		if seasons[index].SeriesID == sourceID && seasons[index].OnlineDate == "" {
+			seasons[index].OnlineDate = current.OnlineDate
+		}
+	}
+	if len(seasons) > 1 {
+		seasons = engine.enrichOfficialSeasonDates(ctx, seasons, engine.hongguoSeasonOnlineDate)
 	}
 
 	var items []nativeSeason
@@ -487,6 +505,63 @@ func (engine *nativeEngine) hongguoSeasonOnlineDate(ctx context.Context, sourceI
 		return ""
 	}
 	return providerReleaseDate(raw.OnlineDate)
+}
+
+// enrichOfficialSeasonDates 给官方 plan/v 分组里已上线但缺日期的季补实际上线日期。
+//
+// plan/v 的 video_data 没有任何时间字段：待上线季只有「预计X月X日上线」文案，
+// 已上线季则完全没有日期。已上线季只能从网页详情的 first_visible_time 取；
+// 禁止用 create_time 或原著小说（book_data）的时间戳代替。
+// [date] 便于测试注入，生产环境传 engine.hongguoSeasonOnlineDate。
+func (engine *nativeEngine) enrichOfficialSeasonDates(
+	ctx context.Context,
+	seasons []hongguoPlanSeason,
+	date func(context.Context, string) string,
+) []hongguoPlanSeason {
+	if date == nil {
+		return seasons
+	}
+	var pending []int
+	for index, season := range seasons {
+		// 待上线季的预计日期来自 plan 文案，已上线季才需要补真实日期。
+		if season.Episodes <= 0 || season.OnlineDate != "" || !hongguoNumericID.MatchString(season.SeriesID) {
+			continue
+		}
+		cacheKey := sourceHongguo + ":" + season.SeriesID
+		if cached, ok := engine.cachedSeasonDate(cacheKey); ok {
+			seasons[index].OnlineDate = cached
+			continue
+		}
+		if len(pending) >= hongguoSeasonOfficialDateLimit {
+			continue
+		}
+		pending = append(pending, index)
+	}
+	if len(pending) == 0 {
+		return seasons
+	}
+	limit := make(chan struct{}, hongguoSeasonEnrichWorkers)
+	var group sync.WaitGroup
+	for position, index := range pending {
+		group.Add(1)
+		go func(position, index int) {
+			defer group.Done()
+			limit <- struct{}{}
+			defer func() { <-limit }()
+			itemCtx := seasonDateRequestContext(ctx, position)
+			var cancel context.CancelFunc
+			itemCtx, cancel = context.WithTimeout(itemCtx, hongguoSeasonDateTimeout)
+			defer cancel()
+			found := date(itemCtx, seasons[index].SeriesID)
+			if found == "" {
+				return
+			}
+			seasons[index].OnlineDate = found
+			engine.rememberSeasonDate(sourceHongguo+":"+seasons[index].SeriesID, found)
+		}(position, index)
+	}
+	group.Wait()
+	return seasons
 }
 
 // hongguoSeasonGroup 读取 App 详情里的官方季字段：
@@ -866,13 +941,27 @@ func (engine *nativeEngine) nativeSeasonAdapter(source string) (seasonAdapter, b
 	return seasonAdapter{}, false
 }
 
+// seasonDateEnrichLimit 单次补日期的季数上限。
+// 红果一部剧可达 15 季以上（实测「京师第一纨绔」），按季补网页详情时放宽；
+// 其它站源保持 6，避免采集站详情拖慢季列表。
+func seasonDateEnrichLimit(source string) int {
+	if source == sourceHongguo {
+		return hongguoSeasonOfficialDateLimit
+	}
+	return hongguoSeasonEnrichLimit
+}
+
 // enrichSeasonDates 并发补齐缺失的上线日期，并写入缓存。
 func (engine *nativeEngine) enrichSeasonDates(
 	ctx context.Context,
 	source string,
 	dramas []Drama,
 	date func(context.Context, string) string,
+	enrichLimit int,
 ) {
+	if enrichLimit <= 0 {
+		enrichLimit = hongguoSeasonEnrichLimit
+	}
 	var pending []int
 	for index, drama := range dramas {
 		if _, dated := hongguoSeasonDate(providerReleaseDate(drama.OnlineDate)); dated {
@@ -883,7 +972,7 @@ func (engine *nativeEngine) enrichSeasonDates(
 			dramas[index].OnlineDate = cached
 			continue
 		}
-		if len(pending) >= hongguoSeasonEnrichLimit {
+		if len(pending) >= enrichLimit {
 			continue
 		}
 		pending = append(pending, index)
@@ -893,13 +982,15 @@ func (engine *nativeEngine) enrichSeasonDates(
 	}
 	limit := make(chan struct{}, hongguoSeasonEnrichWorkers)
 	var group sync.WaitGroup
-	for _, index := range pending {
+	for position, index := range pending {
 		group.Add(1)
-		go func(index int) {
+		go func(position, index int) {
 			defer group.Done()
 			limit <- struct{}{}
 			defer func() { <-limit }()
-			itemCtx, cancel := context.WithTimeout(ctx, hongguoSeasonDateTimeout)
+			itemCtx := seasonDateRequestContext(ctx, position)
+			var cancel context.CancelFunc
+			itemCtx, cancel = context.WithTimeout(itemCtx, hongguoSeasonDateTimeout)
 			defer cancel()
 			found := date(itemCtx, dramas[index].SourceID)
 			if found == "" {
@@ -907,9 +998,17 @@ func (engine *nativeEngine) enrichSeasonDates(
 			}
 			dramas[index].OnlineDate = found
 			engine.rememberSeasonDate(source+":"+dramas[index].SourceID, found)
-		}(index)
+		}(position, index)
 	}
 	group.Wait()
+}
+
+// seasonDateRequestContext 给并行的补日期请求分配独立限流通道。
+// 同一站源只允许一个请求在跑，全部挤在一个通道里会让排在后面的请求
+// 在拿到超时上下文后干等而被取消（实测 15 季只有 6 季补到日期）。
+func seasonDateRequestContext(ctx context.Context, position int) context.Context {
+	lane := "season-date-" + strconv.Itoa(position%hongguoSeasonDateLanes)
+	return context.WithValue(ctx, requestLaneKey{}, lane)
 }
 
 func (engine *nativeEngine) cachedSeasonDate(sourceID string) (string, bool) {
