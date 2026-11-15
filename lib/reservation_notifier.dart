@@ -22,6 +22,13 @@ class ReservationNotifier {
     }
   }
 
+  static Future<void> refreshPermission() async {
+    if (!Platform.isIOS || !_initialized) return;
+    try {
+      _authorized = await _channel.invokeMethod<bool>('checkPermission') ?? false;
+    } catch (_) {}
+  }
+
   static Future<void> show({required String title, required String body, required String id}) async {
     if (!Platform.isIOS) return;
     await initialize();
