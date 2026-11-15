@@ -288,14 +288,16 @@ func (engine *nativeEngine) hongguoExpandPlanSeasons(ctx context.Context, items 
 	return items
 }
 
-// hongguoOfficialSeasons 用红果官方 plan/v 接口获取完整季列表。
+// hongguoOfficialSeasons 用红果官方系列接口获取完整季列表。
+// 已上线季来自 book_pack_fields 批量接口（含真实上线日期），
+// 待上线季由 plan/v 发现并用「预计X月X日上线」文案补日期。
 // 成功（至少 1 项）直接返回；失败 ok=false 让调用方 fallback。
 func (engine *nativeEngine) hongguoOfficialSeasons(
 	ctx context.Context,
 	sourceID string,
 	current nativeDrama,
 ) (nativeSeasonResult, bool) {
-	seasons, ok := engine.downloader.hongguoPlanSeasons(ctx, sourceID)
+	seasons, ok := engine.downloader.hongguoSeriesSeasons(ctx, sourceID)
 	if !ok {
 		return nativeSeasonResult{}, false
 	}
