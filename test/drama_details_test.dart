@@ -27,7 +27,8 @@ class _GatedDetail extends FakeRepository {
 }
 
 class _GatedMetadata extends _GatedDetail {
-  _GatedMetadata(super.detailGate, this.metadataGate);
+  _GatedMetadata(Future<DramaDetail> detailGate, this.metadataGate)
+    : super(detailGate);
   final Future<Drama?> metadataGate;
   int metadataRequests = 0;
 
