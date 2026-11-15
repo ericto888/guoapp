@@ -384,6 +384,7 @@ void main() {
         reservedAt: DateTime(2026, 11, 1).millisecondsSinceEpoch,
       );
       await store.toggleSeasonReservation(reservation);
+      await store.markSeasonReservationNotified(reservation.id);
       await store.saveWatch(watching(first, episode: 2, position: 11));
       await store.setThemeMode('dark');
       await store.setFollowSystemColor(false);
@@ -410,6 +411,7 @@ void main() {
       final restarted = await restartStore(store);
       expect(restarted.favorites.single.id, first.id);
       expect(restarted.seasonReservations.single.id, reservation.id);
+      expect(restarted.seasonReservations.single.notifiedAt, greaterThan(0));
       expect(restarted.watched(first.id)?.position, 11);
       expect(restarted.themeMode, 'dark');
       expect(restarted.followSystemColor, isFalse);
