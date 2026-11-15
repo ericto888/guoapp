@@ -83,10 +83,9 @@ class FollowUpdater with WidgetsBindingObserver {
     _checkingReservations = true;
     // 预约超过单批上限时轮转检查，避免排在前面的未上线作品长期占满批次。
     final start = _reservationOffset % pending.length;
-    final batch = [
-      ...pending.skip(start).take(_reservationBatchSize),
-      ...pending.take(_reservationBatchSize - pending.skip(start).length),
-    ];
+    final count = min(_reservationBatchSize, pending.length);
+    final first = pending.skip(start).take(count).toList();
+    final batch = [...first, ...pending.take(count - first.length)];
     _reservationOffset = (start + batch.length) % pending.length;
     try {
       for (final reservation in batch) {
