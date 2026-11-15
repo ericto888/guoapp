@@ -37,11 +37,13 @@ class LandscapePlayerPage extends StatefulWidget {
     required this.store,
     required this.handle,
     this.onFullscreen,
+    this.followSensor = true,
     this.onMiniWindow,
   });
   final LocalStore store;
   final PlaybackHandle handle;
   final VoidCallback? onFullscreen;
+  final bool followSensor;
   final VoidCallback? onMiniWindow;
 
   @override
@@ -93,7 +95,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    if (widget.onFullscreen == null) {
+    if (widget.onFullscreen == null && widget.followSensor) {
       unawaited(AppDevice.setPlayerOrientation(PlayerOrientation.auto));
     }
     _session.addListener(_bind);
