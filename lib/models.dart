@@ -362,6 +362,8 @@ class SeasonReservation {
 
   /// 是否已到上线日（按本地日期判断）。
   bool get isLive {
+    // 官方已返回实际集数时，以实际上线状态为准，不能被预约时保存的旧日期覆盖。
+    if (drama.episodes > 0) return true;
     final date = DateTime.tryParse(onlineDate);
     if (date == null) return false;
     final now = DateTime.now();

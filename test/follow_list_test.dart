@@ -5,6 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fakes.dart';
 
+class _ReservationRepository extends FakeRepository {
+  @override
+  bool get supportsSourceManagement => true;
+}
+
 void main() {
   test('sources list only those with follows, in site order', () {
     final follows = [drama('a'), drama('b'), drama('c', source: 'huangdou')];
@@ -28,6 +33,59 @@ void main() {
     expect(matchesFollowTitle(item, 'BDZC'), isTrue);
     expect(matchesFollowTitle(item, 'zclove'), isTrue);
     expect(matchesFollowTitle(item, 'wy'), isFalse);
+  });
+
+  test('refreshes an old reservation and notifies when real episodes appear', () async {
+    final store = await openStore();
+    final repository = _ReservationRepository();
+    final reservedDrama = Drama(
+      id: 'hongguo:reserved-season',
+      source: 'hongguo',
+      title: '预约剧第二季',
+      onlineDate: '2026-11-15',
+    );
+    final reservation = SeasonReservation(
+      drama: reservedDrama,
+      season: 2,
+      onlineDate: '2026-11-15',
+      reservedAt: 1,
+    );
+    await store.toggleSeasonReservation(reservation);
+
+    final liveDrama = Drama(
+      id: reservedDrama.id,
+      source: 'hongguo',
+      title: reservedDrama.title,
+      episodes: 12,
+    );
+    repository.seasonLists[reservedDrama.id] = [
+      DramaSeason(
+        number: 2,
+        title: liveDrama.title,
+        drama: liveDrama,
+        episodes: 12,
+      ),
+    ];
+
+    var notified = false;
+    final updater = FollowUpdater(
+      repository,
+      store,
+      startDelay: const Duration(days: 1),
+      onReservationOnline: (_, __) async {
+        notified = true;
+      },
+    );
+    addTearDown(updater.dispose);
+    updater.start();
+    await pumpEventQueue();
+
+    final refreshed = store.seasonReservations.single;
+    expect(refreshed.onlineDate, isEmpty, reason: '官方已不再提供旧日期时应清除错误日期');
+    expect(refreshed.drama.episodes, 12);
+    expect(refreshed.isLive, isTrue);
+    expect(refreshed.notifiedAt, greaterThan(0));
+    expect(notified, isTrue);
   });
 
   test('the update check covers every unfinished follow', () async {

@@ -728,6 +728,61 @@ class LocalStore extends ChangeNotifier {
         .toList();
   }
 
+  /// 用最新官方季数据刷新预约快照。
+  ///
+  /// 在线日期必须直接采用本次官方结果；若官方不再提供旧的预计日期，
+  /// 允许清空历史值，避免旧的 create_time 推断日期继续显示。
+  Future<void> refreshSeasonReservation(String id, DramaSeason season) {
+    final epoch = _epoch;
+    return _queue(() async {
+      if (locked || epoch != _epoch) return;
+      final current = _seasonReservations[id];
+      if (current == null || season.drama.id != id) return;
+
+      final merged = current.drama.merge(season.drama);
+      final episodes = season.episodes > merged.episodes
+          ? season.episodes
+          : merged.episodes;
+      final latestDrama = Drama(
+        id: merged.id,
+        source: merged.source,
+        sourceId: merged.sourceId,
+        title: merged.title,
+        description: merged.description,
+        cover: merged.cover,
+        episodes: episodes,
+        category: merged.category,
+        vip: merged.vipStatus,
+        heat: merged.heat,
+        views: merged.views,
+        onlineDate: season.onlineDate,
+        score: merged.score,
+        tags: merged.tags,
+        releaseStatus: merged.releaseStatus,
+        badge: merged.badge,
+      );
+      final updated = SeasonReservation(
+        drama: latestDrama,
+        season: current.season,
+        unit: current.unit,
+        onlineDate: season.onlineDate,
+        reservedAt: current.reservedAt,
+        notifiedAt: current.notifiedAt,
+      );
+      if (jsonEncode(updated.toJson()) == jsonEncode(current.toJson())) return;
+
+      final entries = Map<String, SeasonReservation>.of(_seasonReservations)
+        ..[id] = updated;
+      await _write(_userFile(_current, 'seasonReservations'), {
+        for (final entry in entries.entries) entry.key: entry.value.toJson(),
+      });
+      _seasonReservations
+        ..clear()
+        ..addAll(entries);
+      _notify();
+    });
+  }
+
   /// 标记某条预约的上线提醒已发送，避免下次启动或轮询重复提醒。
   Future<void> markSeasonReservationNotified(String id) {
     final epoch = _epoch;

@@ -26,6 +26,19 @@ class _GatedDetail extends FakeRepository {
   }
 }
 
+class _GatedMetadata extends _GatedDetail {
+  _GatedMetadata(Future<DramaDetail> detailGate, this.metadataGate)
+    : super(detailGate);
+  final Future<Drama?> metadataGate;
+  int metadataRequests = 0;
+
+  @override
+  Future<Drama?> supplementMetadata(Drama drama) {
+    metadataRequests++;
+    return metadataGate;
+  }
+}
+
 DramaDetails _open(FakeRepository repository, LocalStore store, Drama drama) {
   final details = DramaDetails(repository, store, drama);
   addTearDown(details.dispose);
@@ -155,6 +168,35 @@ void main() {
     gate.complete(const []);
     await pumpEventQueue();
     expect(details.seasonsReady, isTrue);
+  });
+
+  test('红果上线日期补充请求与剧集详情并行', () async {
+    final detailGate = Completer<DramaDetail>();
+    final metadataGate = Completer<Drama?>();
+    final repository = _GatedMetadata(detailGate.future, metadataGate.future);
+    final details = _open(repository, await openStore(), first);
+    await pumpEventQueue();
+
+    expect(details.loading, isTrue);
+    expect(repository.metadataRequests, 1, reason: '不应等待剧集详情完成才请求日期');
+
+    metadataGate.complete(
+      Drama(
+        id: first.id,
+        source: first.source,
+        title: first.title,
+        onlineDate: '2026-11-15',
+      ),
+    );
+    await pumpEventQueue();
+
+    expect(details.loading, isTrue, reason: '日期先到时，分集详情仍可继续加载');
+    expect(details.drama.onlineDate, '2026-11-15');
+
+    detailGate.complete(dramaDetail(first, count: 3));
+    await pumpEventQueue();
+    expect(details.loading, isFalse);
+    expect(details.drama.onlineDate, '2026-11-15');
   });
 
   test('季列表与剧集详情同时请求，不必等详情返回', () async {
