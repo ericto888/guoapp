@@ -207,11 +207,13 @@ FollowState observeHongguoSeriesSeasons({
       title: entry.drama.title,
       season: entry.season,
       unit: entry.unit,
+      cover: entry.drama.cover,
       read: previous?.read ?? false,
     );
     if (previous?.title == notice.title &&
         previous?.season == notice.season &&
         previous?.unit == notice.unit &&
+        previous?.cover == notice.cover &&
         previous?.read == notice.read) {
       continue;
     }

@@ -826,7 +826,10 @@ class _SeasonReservationSwitcherState
   @override
   void initState() {
     super.initState();
-    _refresh();
+    // initState 阶段还不能依赖 AppScope，首帧后再刷新预约季数据。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _refresh();
+    });
   }
 
   @override

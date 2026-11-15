@@ -194,7 +194,6 @@ type nativeEngine struct {
 	streamMu         sync.Mutex
 	streamEpoch      int64
 	seasonDateMu     sync.Mutex
-	seasonDates      map[string]seasonDateEntry
 	seasonGroups     map[string]seasonGroupEntry
 	playbacks        map[string]nativePlaybackChoice
 	playbackMu       sync.Mutex

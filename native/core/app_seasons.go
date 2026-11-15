@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"errors"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,10 +14,6 @@ import (
 // 有官方季字段的站源（红果）直接按官方分组，其余站源沿用标题里的 第N季/第N部。
 const (
 	hongguoSeasonLookupTimeout = 10 * time.Second
-	hongguoSeasonDateTimeout   = 2500 * time.Millisecond
-	hongguoSeasonDateTTL       = 24 * time.Hour
-	hongguoSeasonEnrichLimit   = 6
-	hongguoSeasonEnrichWorkers = 4
 	// 官方季分组：同 related_album_id 才是同一部剧的不同季。
 	// 红果单通道限流是「并发 1、间隔 250ms」，20 个候选串行要 5 秒，
 	// 这里用多条独立通道并行校验，单次详情结果缓存 6 小时。
@@ -36,20 +31,13 @@ type seasonGroupEntry struct {
 	fetched time.Time
 }
 
-// seasonAdapter 把「搜索同源标题」「取详情上线日期」「取官方季分组」抽象出来，
+// seasonAdapter 把「搜索同源标题」「取官方季分组」抽象出来，
 // 红果沿用原有实现，其它有搜索能力的站源各接一层。
 type seasonAdapter struct {
 	search func(ctx context.Context, keyword string) ([]Drama, error)
-	date   func(ctx context.Context, sourceID string) string
 	// group 返回官方的「同系列分组 ID + 季号 + 详情元数据」，
 	// 只有提供该字段的站源才会填充。
 	group func(ctx context.Context, sourceID string) (string, int, Drama, bool)
-}
-
-// seasonDateEntry 缓存某部剧的上线日期，避免每次打开详情页都补查。
-type seasonDateEntry struct {
-	date    string
-	fetched time.Time
 }
 
 type nativeSeason struct {
@@ -135,9 +123,6 @@ func (engine *nativeEngine) nativeSeasons(ctx context.Context, input nativeInput
 				}
 			}
 		}
-		// 搜索结果常常缺上线日期，缺日期就没法判断同名不同剧；
-		// 这里并发补查详情日期，并用缓存避免重复请求。
-		engine.enrichSeasonDates(lookup, source, names, adapter.date)
 		found = hongguoSeasonList(names, current, unit, key, input.Drama)
 	}
 	// 官方骨架（plan/v）与搜索聚合互补：骨架里的季号不被搜索结果覆盖，
@@ -473,22 +458,6 @@ func hongguoSeasonEpisodesPlausible(current, candidate int) bool {
 	return candidate <= current*3 && candidate*3 >= current
 }
 
-// hongguoSeasonOnlineDate 只取详情页的上线日期，用于补齐搜索结果缺失的日期。
-func (engine *nativeEngine) hongguoSeasonOnlineDate(ctx context.Context, sourceID string) string {
-	if !hongguoNumericID.MatchString(sourceID) {
-		return ""
-	}
-	body, err := engine.downloader.fetchProviderText(ctx, hongguoBaseURL+"/detail?series_id="+url.QueryEscape(sourceID), hongguoBaseURL+"/")
-	if err != nil {
-		return ""
-	}
-	raw, err := parseHongguoSortDetail(body, sourceID)
-	if err != nil {
-		return ""
-	}
-	return providerReleaseDate(raw.OnlineDate)
-}
-
 // hongguoSeasonGroup 读取 App 详情里的官方季字段：
 // related_album_id 标识同一部剧，season_index 是官方季号。
 // 同时返回详情里的剧集元数据，季卡片据此显示上线时间和集数。
@@ -791,7 +760,7 @@ func (engine *nativeEngine) officialSeasonsWithSeed(
 	return items, true
 }
 
-// seasonAdapter 把「搜索同源标题」与「取详情上线日期」抽象出来，
+// seasonAdapter 把「搜索同源标题」与「取官方季分组」抽象出来，
 // 红果沿用原有实现，其它有搜索能力的站源各接一层。
 func (engine *nativeEngine) nativeSeasonAdapter(source string) (seasonAdapter, bool) {
 	catalogSearch := func(fetch func(context.Context, int, string, string) ([]Drama, bool, error)) func(context.Context, string) ([]Drama, error) {
@@ -800,36 +769,23 @@ func (engine *nativeEngine) nativeSeasonAdapter(source string) (seasonAdapter, b
 			return items, err
 		}
 	}
-	detailDate := func(fetch func(context.Context, string) (Drama, []Chapter, error)) func(context.Context, string) string {
-		return func(ctx context.Context, sourceID string) string {
-			raw, _, err := fetch(ctx, sourceID)
-			if err != nil {
-				return ""
-			}
-			return providerReleaseDate(raw.OnlineDate)
-		}
-	}
 	switch source {
 	case sourceHongguo:
 		return seasonAdapter{
 			search: engine.downloader.fetchHongguoSearchNames,
-			date:   engine.hongguoSeasonOnlineDate,
 			group:  engine.hongguoSeasonGroup,
 		}, true
 	case sourceHuangju:
 		return seasonAdapter{
 			search: catalogSearch(engine.downloader.fetchHuangjuCatalogPage),
-			date:   detailDate(engine.downloader.fetchHuangjuDetail),
 		}, true
 	case sourceSorani:
 		return seasonAdapter{
 			search: catalogSearch(engine.downloader.fetchSoraniCatalogPage),
-			date:   detailDate(engine.downloader.fetchSoraniDetail),
 		}, true
 	case sourceGuipian:
 		return seasonAdapter{
 			search: catalogSearch(engine.downloader.fetchGuipianCatalogPage),
-			date:   detailDate(engine.downloader.fetchGuipianDetail),
 		}, true
 	case sourceHanxiaoquan:
 		return seasonAdapter{
@@ -837,7 +793,6 @@ func (engine *nativeEngine) nativeSeasonAdapter(source string) (seasonAdapter, b
 				items, _, err := engine.downloader.searchHanxiaoquan(ctx, 1, keyword)
 				return items, err
 			},
-			date: detailDate(engine.downloader.fetchHanxiaoquanDetail),
 		}, true
 	case sourceHuangguoAI:
 		return seasonAdapter{
@@ -845,88 +800,15 @@ func (engine *nativeEngine) nativeSeasonAdapter(source string) (seasonAdapter, b
 				items, _, err := engine.downloader.searchHuangguoAI(ctx, 1, keyword)
 				return items, err
 			},
-			date: detailDate(engine.downloader.fetchHuangguoAIDetail),
 		}, true
 	case sourceZuid, sourceFfzy, sourceRycj, sourceHsck:
-		// 采集站沿用同一套季规则：列表已带上线日期，缺日期再查详情。
+		// 采集站沿用同一套季规则，标题里的季号直接聚合。
 		return seasonAdapter{
 			search: func(ctx context.Context, keyword string) ([]Drama, error) {
 				items, _, err := engine.downloader.fetchMaccmsCatalogPage(ctx, source, 1, "", keyword)
 				return items, err
 			},
-			date: func(ctx context.Context, sourceID string) string {
-				raw, _, err := engine.downloader.fetchMaccmsDetail(ctx, source, sourceID)
-				if err != nil {
-					return ""
-				}
-				return providerReleaseDate(raw.OnlineDate)
-			},
 		}, true
 	}
 	return seasonAdapter{}, false
-}
-
-// enrichSeasonDates 并发补齐缺失的上线日期，并写入缓存。
-func (engine *nativeEngine) enrichSeasonDates(
-	ctx context.Context,
-	source string,
-	dramas []Drama,
-	date func(context.Context, string) string,
-) {
-	var pending []int
-	for index, drama := range dramas {
-		if _, dated := hongguoSeasonDate(providerReleaseDate(drama.OnlineDate)); dated {
-			continue
-		}
-		cacheKey := source + ":" + drama.SourceID
-		if cached, ok := engine.cachedSeasonDate(cacheKey); ok {
-			dramas[index].OnlineDate = cached
-			continue
-		}
-		if len(pending) >= hongguoSeasonEnrichLimit {
-			continue
-		}
-		pending = append(pending, index)
-	}
-	if len(pending) == 0 {
-		return
-	}
-	limit := make(chan struct{}, hongguoSeasonEnrichWorkers)
-	var group sync.WaitGroup
-	for _, index := range pending {
-		group.Add(1)
-		go func(index int) {
-			defer group.Done()
-			limit <- struct{}{}
-			defer func() { <-limit }()
-			itemCtx, cancel := context.WithTimeout(ctx, hongguoSeasonDateTimeout)
-			defer cancel()
-			found := date(itemCtx, dramas[index].SourceID)
-			if found == "" {
-				return
-			}
-			dramas[index].OnlineDate = found
-			engine.rememberSeasonDate(source+":"+dramas[index].SourceID, found)
-		}(index)
-	}
-	group.Wait()
-}
-
-func (engine *nativeEngine) cachedSeasonDate(sourceID string) (string, bool) {
-	engine.seasonDateMu.Lock()
-	defer engine.seasonDateMu.Unlock()
-	entry, ok := engine.seasonDates[sourceID]
-	if !ok || time.Since(entry.fetched) > hongguoSeasonDateTTL {
-		return "", false
-	}
-	return entry.date, true
-}
-
-func (engine *nativeEngine) rememberSeasonDate(sourceID, date string) {
-	engine.seasonDateMu.Lock()
-	defer engine.seasonDateMu.Unlock()
-	if engine.seasonDates == nil {
-		engine.seasonDates = map[string]seasonDateEntry{}
-	}
-	engine.seasonDates[sourceID] = seasonDateEntry{date: date, fetched: time.Now()}
 }

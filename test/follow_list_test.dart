@@ -11,6 +11,8 @@ class _ReservationRepository extends FakeRepository {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('sources list only those with follows, in site order', () {
     final follows = [drama('a'), drama('b'), drama('c', source: 'huangdou')];
     expect(followedSources(follows).map((site) => site.id), [

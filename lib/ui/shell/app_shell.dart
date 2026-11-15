@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../download_converter.dart';
 import '../../merge_queue.dart';
 import '../../download_overview.dart';
+import '../../follow_state.dart';
 import '../../follow_updater.dart';
 import '../../local_store.dart';
 import '../../models.dart';
@@ -14,7 +15,8 @@ import '../explore/explore_page.dart';
 import '../explore/source_actions.dart';
 import '../follow/follow_page.dart';
 import '../detail/detail_page.dart';
-import '../widgets/cover_image.dart';
+import '../widgets/reservation_online_dialog.dart';
+import '../widgets/season_notice_dialog.dart';
 import '../mine/mine_page.dart';
 import '../update_prompt.dart';
 import '../widgets/bar_button.dart';
@@ -80,8 +82,11 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     FocusManager.instance.addListener(_followFocus);
+    widget.store.addListener(_scheduleSeasonNotices);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) runStartupChecks(context, widget.store);
+      if (!mounted) return;
+      runStartupChecks(context, widget.store);
+      _scheduleSeasonNotices();
     });
   }
 
@@ -108,6 +113,7 @@ class _AppShellState extends State<AppShell> {
   @override
   void dispose() {
     FocusManager.instance.removeListener(_followFocus);
+    widget.store.removeListener(_scheduleSeasonNotices);
     for (final node in _tabFocus) {
       node.dispose();
     }
@@ -136,132 +142,10 @@ class _AppShellState extends State<AppShell> {
     final watch = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => Transform.translate(
-        offset: Offset(0, -MediaQuery.sizeOf(dialogContext).height * 0.035),
-        child: Dialog(
-          insetPadding: const EdgeInsets.symmetric(horizontal: 28),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(22),
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 380),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '预约作品已上线',
-                          style: Theme.of(dialogContext).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                      Icon(
-                        Icons.notifications_active_outlined,
-                        color: Theme.of(dialogContext).colorScheme.primary,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        width: 88,
-                        height: 124,
-                        child: DramaCover(
-                          drama: season.drama,
-                          details: false,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.only(top: 5),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                season.drama.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(dialogContext)
-                                    .textTheme.titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.w700),
-                              ),
-                              const SizedBox(height: 10),
-                              DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: Theme.of(dialogContext)
-                                      .colorScheme
-                                      .primaryContainer,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 9,
-                                    vertical: 5,
-                                  ),
-                                  child: Text(
-                                    '${reservation.label}已上线',
-                                    style: TextStyle(
-                                      color: Theme.of(dialogContext)
-                                          .colorScheme
-                                          .onPrimaryContainer,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 9),
-                              Text(
-                                '你预约的剧集现在可以观看了',
-                                style: Theme.of(dialogContext)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                      color: Theme.of(dialogContext)
-                                          .colorScheme
-                                          .onSurfaceVariant,
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextButton(
-                          onPressed: () =>
-                              Navigator.of(dialogContext).pop(false),
-                          child: const Text('稍后再看'),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: () =>
-                              Navigator.of(dialogContext).pop(true),
-                          child: const Text('立即观看'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+      builder: (dialogContext) =>
+          ReservationOnlineDialog(reservation: reservation, season: season),
     );
+
     if (watch == true && mounted) {
       openPage<void>(
         context,
@@ -271,6 +155,71 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _select(AppTab tab) => setState(() => _tab = tab);
+
+  bool _seasonNoticeShowing = false;
+
+  /// 有未读「新季上线预告」时，依次弹窗展示新季封面与剧名。
+  void _scheduleSeasonNotices() {
+    if (_seasonNoticeShowing || !mounted) return;
+    final pending = <(String, SeriesSeasonNotice)>[];
+    for (final drama in widget.store.favorites) {
+      final state = widget.store.following(drama.id);
+      final notices = state?.seriesSeasons.values;
+      if (notices == null) continue;
+      for (final notice in notices) {
+        if (!notice.read) pending.add((drama.id, notice));
+      }
+    }
+    if (pending.isEmpty) return;
+    debugPrint('[Diary] [SeasonNotice] 检测到 ${pending.length} 条未读新季提醒');
+    _seasonNoticeShowing = true;
+    // 若当前没有待绘制的帧，post-frame 回调不会执行，这里主动请求一帧。
+    WidgetsBinding.instance.ensureVisualUpdate();
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _showSeasonNotices(pending),
+    );
+  }
+
+  Future<void> _showSeasonNotices(
+    List<(String, SeriesSeasonNotice)> pending,
+  ) async {
+    debugPrint('[Diary] [SeasonNotice] 开始弹出 ${pending.length} 条新季提醒');
+    try {
+      for (final (favoriteID, notice) in pending) {
+        if (!mounted) return;
+        debugPrint(
+          '[Diary] [SeasonNotice] 弹出 ${notice.title} 第${notice.season}${notice.unit}',
+        );
+        final drama = Drama(
+          id: notice.id,
+          source: SourceSite.hongguo.id,
+          sourceId: notice.id,
+          title: notice.title,
+          cover: notice.cover,
+        );
+        final details = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => SeasonNoticeDialog(
+            drama: drama,
+            season: notice.season,
+            unit: notice.unit,
+          ),
+        );
+        if (!mounted) return;
+        await widget.store.markSeriesSeasonRead(favoriteID, notice.id);
+        if (details == true && mounted) {
+          openPage<void>(
+            context,
+            (_) => DetailPage(store: widget.store, drama: drama),
+          );
+          return;
+        }
+      }
+    } finally {
+      _seasonNoticeShowing = false;
+    }
+  }
 
   void _tap(AppTab tab) {
     if (tab != _tab) return _select(tab);

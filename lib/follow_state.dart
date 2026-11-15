@@ -113,6 +113,7 @@ class SeriesSeasonNotice {
     required this.title,
     required this.season,
     required this.unit,
+    this.cover = '',
     this.read = false,
   });
 
@@ -120,6 +121,7 @@ class SeriesSeasonNotice {
   final String title;
   final int season;
   final String unit;
+  final String cover;
   final bool read;
 
   SeriesSeasonNotice markRead() => read
@@ -129,6 +131,7 @@ class SeriesSeasonNotice {
           title: title,
           season: season,
           unit: unit,
+          cover: cover,
           read: true,
         );
 
@@ -137,12 +140,14 @@ class SeriesSeasonNotice {
     'title': title,
     'season': season,
     'unit': unit,
+    'cover': cover,
     'read': read,
   };
 
   factory SeriesSeasonNotice.fromJson(Map<String, dynamic> json) {
     final id = json['id'], title = json['title'], season = json['season'];
     final unit = json['unit'], read = json['read'];
+    final cover = json['cover'] ?? '';
     if (id is! String ||
         !id.startsWith('${SourceSite.hongguo.id}:') ||
         id.length > 512 ||
@@ -154,6 +159,8 @@ class SeriesSeasonNotice {
         season > 200 ||
         unit is! String ||
         !{'季', '部'}.contains(unit) ||
+        cover is! String ||
+        cover.length > 2048 ||
         read is! bool) {
       throw const FormatException('系列剧提醒无效');
     }
@@ -162,6 +169,7 @@ class SeriesSeasonNotice {
       title: title,
       season: season,
       unit: unit,
+      cover: cover,
       read: read,
     );
   }
