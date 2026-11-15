@@ -54,6 +54,14 @@
 - Added the upstream `followSensor` option to the local landscape player without removing the local orientation re-arm behavior.
 - GitHub compare confirms the working branch is 7 commits ahead of `main`, with `main` untouched. These changes have not yet been Dart-formatted, analyzed, built or device-tested.
 
+### Native core / JS module architecture audit
+
+- Upstream has a provider abstraction layer that does not exist in the local tree under the same paths: `native/core/provider_registry.go`, `provider_host.go` and `provider_helpers.go` are present upstream but absent locally.
+- Upstream runtime dispatch includes module management actions (`modules`, `moduleIndex`, `prepareModule`, `installModule`, `uninstallModule`) and routes catalog/detail/resolve through the provider registry. Local runtime dispatch still uses hard-coded provider branches and has no module-management actions.
+- The minimum upstream module runtime subsystem includes `module_loader.go`, `module_script.go`, `module_host.go`, `module_capabilities.go`, `module_index.go`, `module_install.go`, `module_bundled.go`, plus provider registry/host interfaces, tests, Go dependencies and Dart bridge/UI integration.
+- Local `app_runtime.go`, `app_catalog_cache.go`, `app_cover_metadata.go`, `provider_media.go` and `network_browser.go` differ materially from upstream. These must be treated as subsystem migrations, not simple file copies.
+- Upstream `DEVELOPMENT.md` documents the Hongguo module as a private `guoapp-modules/hongguo` repository injected into builds via `HONGGUO_DEPLOY_KEY`. That repository is not currently visible in the connected GitHub installation search. The private module source/deploy key must be made available before a fork can produce an equivalent bundled Hongguo build.
+
 ## Next audit / migration order
 
 1. Complete the file map for player UI/orientation, playback ownership, series/reservation state and local persistence.
