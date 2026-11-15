@@ -768,6 +768,9 @@ class LocalStore extends ChangeNotifier {
         onlineDate: season.onlineDate,
         reservedAt: current.reservedAt,
         notifiedAt: current.notifiedAt,
+        metadataRefreshedAt: current.metadataRefreshedAt > 0
+            ? current.metadataRefreshedAt
+            : DateTime.now().millisecondsSinceEpoch,
       );
       if (jsonEncode(updated.toJson()) == jsonEncode(current.toJson())) return;
 
@@ -797,6 +800,7 @@ class LocalStore extends ChangeNotifier {
         onlineDate: current.onlineDate,
         reservedAt: current.reservedAt,
         notifiedAt: DateTime.now().millisecondsSinceEpoch,
+        metadataRefreshedAt: current.metadataRefreshedAt,
       );
       final entries = Map<String, SeasonReservation>.of(_seasonReservations)
         ..[id] = updated;

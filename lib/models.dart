@@ -346,6 +346,7 @@ class SeasonReservation {
     this.onlineDate = '',
     required this.reservedAt,
     this.notifiedAt = 0,
+    this.metadataRefreshedAt = 0,
   });
   final Drama drama;
   final int season;
@@ -354,6 +355,8 @@ class SeasonReservation {
   final int reservedAt;
   /// 上线提醒已发送时间戳（毫秒）；0 表示尚未提醒。
   final int notifiedAt;
+  /// 已成功同步过一次官方预约元数据的时间；0 表示尚未同步。
+  final int metadataRefreshedAt;
 
   String get id => drama.id;
   String get label => season > 0 ? '第$season$unit' : drama.title;
@@ -377,6 +380,7 @@ class SeasonReservation {
     'onlineDate': onlineDate,
     'reservedAt': reservedAt,
     'notifiedAt': notifiedAt,
+    'metadataRefreshedAt': metadataRefreshedAt,
   };
 
   factory SeasonReservation.fromJson(Map<String, dynamic> json) {
@@ -402,6 +406,7 @@ class SeasonReservation {
       onlineDate: json['onlineDate'] as String? ?? '',
       reservedAt: reservedAt,
       notifiedAt: intValue(json['notifiedAt']),
+      metadataRefreshedAt: intValue(json['metadataRefreshedAt']),
     );
   }
 }

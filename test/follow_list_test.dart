@@ -85,6 +85,7 @@ void main() {
     expect(refreshed.drama.episodes, 12);
     expect(refreshed.isLive, isTrue);
     expect(refreshed.notifiedAt, greaterThan(0));
+    expect(refreshed.metadataRefreshedAt, greaterThan(0));
     expect(notified, isTrue);
   });
 

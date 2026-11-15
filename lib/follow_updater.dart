@@ -77,7 +77,10 @@ class FollowUpdater with WidgetsBindingObserver {
   /// 避免同名作品或其他季上线时误报；必须检测到实际集数才发上线提醒。
   Future<void> _checkReservations() async {
     // 已提醒的预约也要继续同步官方元数据，以便修正历史错误日期和集数。
-    final reservations = store.seasonReservations.toList();
+    // 已通知预约只需纠正一次历史快照；尚未通知的预约继续定期核对上线状态。
+    final reservations = store.seasonReservations
+        .where((item) => item.notifiedAt == 0 || item.metadataRefreshedAt == 0)
+        .toList();
     if (reservations.isEmpty || !_valid || _checkingReservations) return;
     _checkingReservations = true;
     // 预约超过单批上限时轮转检查，避免后面的预约长期得不到刷新。
