@@ -30,7 +30,10 @@ class FollowUpdater with WidgetsBindingObserver {
   final Duration recheck;
   final int limit;
   final DateTime Function() _clock;
-  final Future<void> Function(SeasonReservation reservation, DramaSeason season)? onReservationOnline;
+  final Future<void> Function(
+    SeasonReservation reservation,
+    DramaSeason season,
+  )? onReservationOnline;
   final int _epoch;
   Timer? _timer;
   bool _running = false;
@@ -73,27 +76,27 @@ class FollowUpdater with WidgetsBindingObserver {
     _checkingReservations = true;
     final batch = pending.take(_reservationBatchSize).toList();
     try {
-    for (final reservation in batch) {
-      if (!_valid) return;
-      try {
-        final seasons = await repository
-            .seasons(reservation.drama)
-            .timeout(const Duration(seconds: 25));
-        final current = seasons.where(
-          (season) => season.drama.id == reservation.id,
-        ).firstOrNull;
-        if (current == null ||
-            (current.episodes <= 0 && current.drama.episodes <= 0)) {
-          continue;
+      for (final reservation in batch) {
+        if (!_valid) return;
+        try {
+          final seasons = await repository
+              .seasons(reservation.drama)
+              .timeout(const Duration(seconds: 25));
+          final current = seasons.where(
+            (season) => season.drama.id == reservation.id,
+          ).firstOrNull;
+          if (current == null ||
+              (current.episodes <= 0 && current.drama.episodes <= 0)) {
+            continue;
+          }
+          final notify = onReservationOnline;
+          if (notify == null) continue;
+          await notify(reservation, current);
+          await store.markSeasonReservationNotified(reservation.id);
+        } catch (_) {
+          // 网络请求或弹窗失败时保留未提醒状态，下次打开 App 再检查。
         }
-        final notify = onReservationOnline;
-        if (notify == null) continue;
-        await notify(reservation, current);
-        await store.markSeasonReservationNotified(reservation.id);
-      } catch (_) {
-        // 网络或系统通知失败时保留未提醒状态，下次启动/轮询继续重试。
       }
-    }
     } finally {
       _checkingReservations = false;
     }
