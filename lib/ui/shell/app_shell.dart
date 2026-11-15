@@ -128,7 +128,6 @@ class _AppShellState extends State<AppShell> {
     super.dispose();
   }
 
-
   Future<void> _showReservationOnline(
     SeasonReservation reservation,
     DramaSeason season,
