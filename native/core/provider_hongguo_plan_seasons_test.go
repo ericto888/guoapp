@@ -22,6 +22,7 @@ func TestParseHongguoPlanSeasonsOfficialSeries(t *testing.T) {
 						"title":        "持械入宋：第一季",
 						"season_index": 1,
 						"episode_cnt":  100,
+						"first_visible_time": "1794700800",
 						"cover":        "https://example.test/1.jpg",
 						"video_desc":   "第一季简介",
 						"disable_play": false,
@@ -57,6 +58,9 @@ func TestParseHongguoPlanSeasonsOfficialSeries(t *testing.T) {
 	}
 	if seasons[0].Title != "持械入宋：第一季" || seasons[0].Episodes != 100 {
 		t.Fatalf("season 1 = %+v", seasons[0])
+	}
+	if seasons[0].OnlineDate != "2026-11-15" {
+		t.Fatalf("season 1 online date = %q, want 2026-11-15", seasons[0].OnlineDate)
 	}
 	// 蹭名剧不在官方系列里——列表里第 2 季必须是正确的 7676706788724460568。
 	if seasons[1].SeriesID != "7676706788724460568" {
