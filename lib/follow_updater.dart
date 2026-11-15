@@ -36,6 +36,8 @@ class FollowUpdater with WidgetsBindingObserver {
   )? onReservationOnline;
   final int _epoch;
   Timer? _timer;
+  Timer? _reservationTimer;
+  int _reservationOffset = 0;
   bool _running = false;
   bool _disposed = false;
   bool _checkingReservations = false;
@@ -50,6 +52,11 @@ class FollowUpdater with WidgetsBindingObserver {
     }
     WidgetsBinding.instance.addObserver(this);
     unawaited(_checkReservations());
+    // 预约检查独立于普通追剧刷新，App 使用期间每 10 分钟核对一次。
+    _reservationTimer = Timer.periodic(
+      const Duration(minutes: 10),
+      (_) => unawaited(_checkReservations()),
+    );
     _timer = Timer(startDelay, () {
       _timer = Timer.periodic(interval, (_) => _tick());
       _tick();
@@ -74,7 +81,12 @@ class FollowUpdater with WidgetsBindingObserver {
         .toList();
     if (pending.isEmpty || !_valid || _checkingReservations) return;
     _checkingReservations = true;
-    final batch = pending.take(_reservationBatchSize).toList();
+    // 预约超过单批上限时轮转检查，避免排在前面的未上线作品长期占满批次。
+    final start = _reservationOffset % pending.length;
+    final count = min(_reservationBatchSize, pending.length);
+    final first = pending.skip(start).take(count).toList();
+    final batch = [...first, ...pending.take(count - first.length)];
+    _reservationOffset = (start + batch.length) % pending.length;
     try {
       for (final reservation in batch) {
         if (!_valid) return;
@@ -155,5 +167,6 @@ class FollowUpdater with WidgetsBindingObserver {
     _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
+    _reservationTimer?.cancel();
   }
 }
