@@ -4,7 +4,6 @@ import DuanjuCore
 import CFNetwork
 import AVFoundation
 import MediaPlayer
-import UserNotifications
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -25,7 +24,6 @@ import UserNotifications
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     ZgjEnsureCoreLinked()
-    UNUserNotificationCenter.current().delegate = self
     // 启动即激活 playback 类音频会话（配合 Info.plist 的 UIBackgroundModes=audio）：
     // 锁屏/切出后即使播放器已暂停，进程也不会被系统立即挂起，
     // mpv 与外部纹理保持存活，回前台无需纹理重建，不产生花屏帧。
@@ -40,64 +38,6 @@ import UserNotifications
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    if let notificationRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "ReservationNotifications") {
-      let notificationChannel = FlutterMethodChannel(
-        name: "duanju/notifications",
-        binaryMessenger: notificationRegistrar.messenger()
-      )
-      notificationChannel.setMethodCallHandler { call, result in
-      switch call.method {
-      case "checkPermission":
-        UNUserNotificationCenter.current().getNotificationSettings { settings in
-          let allowed = settings.authorizationStatus == .authorized ||
-            settings.authorizationStatus == .provisional ||
-            settings.authorizationStatus == .ephemeral
-          DispatchQueue.main.async { result(allowed) }
-        }
-      case "requestPermission":
-        UNUserNotificationCenter.current().requestAuthorization(
-          options: [.alert, .sound, .badge]
-        ) { granted, error in
-          DispatchQueue.main.async {
-            if let error = error {
-              result(FlutterError(code: "notification_permission_failed", message: error.localizedDescription, details: nil))
-            } else {
-              result(granted)
-            }
-          }
-        }
-      case "show":
-        guard let args = call.arguments as? [String: Any],
-              let title = args["title"] as? String,
-              let body = args["body"] as? String,
-              let identifier = args["id"] as? String else {
-          result(FlutterError(code: "invalid_notification", message: "通知参数无效", details: nil))
-          return
-        }
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        let request = UNNotificationRequest(
-          identifier: "reservation-\(identifier)",
-          content: content,
-          trigger: nil
-        )
-        UNUserNotificationCenter.current().add(request) { error in
-          DispatchQueue.main.async {
-            if let error = error {
-              result(FlutterError(code: "notification_delivery_failed", message: error.localizedDescription, details: nil))
-            } else {
-              result(nil)
-            }
-          }
-        }
-      default:
-        result(FlutterMethodNotImplemented)
-      }
-      }
-    }
-
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "DeviceSettings") {
       let channel = FlutterMethodChannel(name: "duanju/device", binaryMessenger: registrar.messenger())
       channel.setMethodCallHandler { call, result in
@@ -180,13 +120,5 @@ import UserNotifications
                 "pac": (settings["ProxyAutoConfigEnable"] as? NSNumber)?.boolValue == true])
       }
     }
-  }
-
-  override func userNotificationCenter(
-    _ center: UNUserNotificationCenter,
-    willPresent notification: UNNotification,
-    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-  ) {
-    completionHandler([.alert, .sound, .badge])
   }
 }
