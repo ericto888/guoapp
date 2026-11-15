@@ -170,7 +170,7 @@ void main() {
     expect(details.seasonsReady, isTrue);
   });
 
-  test('红果上线日期补充请求与剧集详情并行', () async {
+  test('详情及分集返回后才补充红果上线日期', () async {
     final detailGate = Completer<DramaDetail>();
     final metadataGate = Completer<Drama?>();
     final repository = _GatedMetadata(detailGate.future, metadataGate.future);
@@ -178,7 +178,14 @@ void main() {
     await pumpEventQueue();
 
     expect(details.loading, isTrue);
-    expect(repository.metadataRequests, 1, reason: '不应等待剧集详情完成才请求日期');
+    expect(repository.metadataRequests, 0, reason: '保持上游原版详情加载顺序');
+
+    detailGate.complete(dramaDetail(first, count: 3));
+    await pumpEventQueue();
+
+    expect(details.loading, isFalse);
+    expect(details.episodes, hasLength(3));
+    expect(repository.metadataRequests, 1, reason: '详情完成后才请求补充元数据');
 
     metadataGate.complete(
       Drama(
@@ -189,13 +196,6 @@ void main() {
       ),
     );
     await pumpEventQueue();
-
-    expect(details.loading, isTrue, reason: '日期先到时，分集详情仍可继续加载');
-    expect(details.drama.onlineDate, '2026-11-15');
-
-    detailGate.complete(dramaDetail(first, count: 3));
-    await pumpEventQueue();
-    expect(details.loading, isFalse);
     expect(details.drama.onlineDate, '2026-11-15');
   });
 
