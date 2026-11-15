@@ -40,11 +40,12 @@ import UserNotifications
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    let notificationChannel = FlutterMethodChannel(
-      name: "duanju/notifications",
-      binaryMessenger: engineBridge.binaryMessenger
-    )
-    notificationChannel.setMethodCallHandler { call, result in
+    if let notificationRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "ReservationNotifications") {
+      let notificationChannel = FlutterMethodChannel(
+        name: "duanju/notifications",
+        binaryMessenger: notificationRegistrar.messenger()
+      )
+      notificationChannel.setMethodCallHandler { call, result in
       switch call.method {
       case "requestPermission":
         UNUserNotificationCenter.current().requestAuthorization(
@@ -86,6 +87,7 @@ import UserNotifications
         }
       default:
         result(FlutterMethodNotImplemented)
+      }
       }
     }
 
