@@ -74,7 +74,7 @@ void main() {
       repository,
       store,
       startDelay: const Duration(days: 1),
-      onReservationOnline: (_, __) async {
+      onReservationOnline: (_, _) async {
         notified = true;
       },
     );

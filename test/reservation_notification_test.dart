@@ -38,7 +38,7 @@ void main() {
       repository,
       store,
       startDelay: const Duration(days: 1),
-      onReservationOnline: (_reservation, _season) async => notices++,
+      onReservationOnline: (_, _) async => notices++,
     );
     addTearDown(updater.dispose);
 

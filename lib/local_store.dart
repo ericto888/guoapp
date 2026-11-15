@@ -36,6 +36,7 @@ const _backupFlags = {
   'deleteAfterAutoExport',
   'deleteAfterManualExport',
   'televisionKeyboard',
+  'historyTab',
   'blurCoversButton',
   'blurCoversOnLaunch',
 };
@@ -432,6 +433,9 @@ class LocalStore extends ChangeNotifier {
   bool get deleteAfterManualExport => _flag('deleteAfterManualExport', false);
   bool get shareUsage => _flag('shareUsage', true);
 
+  /// 主页导航是否显示「历史」；电视端导航不受此设置影响。
+  bool get historyTab => _flag('historyTab', true);
+
   /// 发现页站源按钮左边的眼睛按钮；关闭后不显示该按钮。
   bool get blurCoversButton => _flag('blurCoversButton', false);
 
@@ -573,6 +577,7 @@ class LocalStore extends ChangeNotifier {
   );
   Future<void> setTelevisionKeyboard(bool value) =>
       _setting('televisionKeyboard', value);
+  Future<void> setHistoryTab(bool value) => _setting('historyTab', value);
   Future<void> setBlurCoversButton(bool value) =>
       _setting('blurCoversButton', value);
   Future<void> setBlurCoversOnLaunch(bool value) =>
@@ -1131,6 +1136,7 @@ class LocalStore extends ChangeNotifier {
       'deleteAfterAutoExport': deleteAfterAutoExport,
       'deleteAfterManualExport': deleteAfterManualExport,
       'televisionKeyboard': televisionKeyboard,
+      'historyTab': historyTab,
       'blurCoversButton': blurCoversButton,
       'blurCoversOnLaunch': _flag('blurCoversOnLaunch', false),
       'libraries': libraries,

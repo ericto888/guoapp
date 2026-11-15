@@ -14,6 +14,7 @@ import '../app_scope.dart';
 import '../explore/explore_page.dart';
 import '../explore/source_actions.dart';
 import '../follow/follow_page.dart';
+import '../history/history_page.dart';
 import '../detail/detail_page.dart';
 import '../widgets/reservation_online_dialog.dart';
 import '../widgets/season_notice_dialog.dart';
@@ -28,6 +29,7 @@ import '../widgets/source_bar.dart';
 enum AppTab {
   explore('发现', Icons.explore_outlined, Icons.explore),
   follow('追剧', Icons.bookmark_border_rounded, Icons.bookmark_rounded),
+  history('历史', Icons.history_rounded, Icons.history_rounded),
   mine('我的', Icons.person_outline_rounded, Icons.person_rounded);
 
   const AppTab(this.label, this.icon, this.selectedIcon);
@@ -308,6 +310,7 @@ class _AppShellState extends State<AppShell> {
       entryFocus: _mineEntry,
       onExitUp: _tabFocus[AppTab.mine.index].requestFocus,
     ),
+    AppTab.history => HistoryPage(store: widget.store),
   };
 
   @override
@@ -352,6 +355,18 @@ class _AppShellState extends State<AppShell> {
     );
     final television = AppScope.of(context).television;
     final covered = _navigator?.canPop() ?? false;
+    // 「历史」只在手机、平板、电脑出现，且可在设置里关闭；电视端导航保持不变。
+    final tabs = [
+      for (final tab in AppTab.values)
+        if (tab != AppTab.history ||
+            (widget.store.historyTab && !television))
+          tab,
+    ];
+    if (!tabs.contains(_tab)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _tab == AppTab.history) _select(AppTab.explore);
+      });
+    }
     return PopScope(
       canPop:
           _exitWindow != null &&
@@ -367,10 +382,12 @@ class _AppShellState extends State<AppShell> {
           bottomNavigationBar: covered
               ? null
               : NavigationBar(
-                  selectedIndex: _tab.index,
-                  onDestinationSelected: (index) => _tap(AppTab.values[index]),
+                  selectedIndex: tabs.contains(_tab)
+                      ? tabs.indexOf(_tab)
+                      : 0,
+                  onDestinationSelected: (index) => _tap(tabs[index]),
                   destinations: [
-                    for (final tab in AppTab.values)
+                    for (final tab in tabs)
                       NavigationDestination(
                         key: ValueKey('nav-${tab.name}'),
                         icon: _badged(tab, Icon(tab.icon)),
@@ -380,7 +397,7 @@ class _AppShellState extends State<AppShell> {
                   ],
                 ),
         ),
-        FormFactor.pad || FormFactor.window => _wide(content),
+        FormFactor.pad || FormFactor.window => _wide(content, tabs),
         FormFactor.television => Scaffold(
           body: SafeArea(
             child: Column(
@@ -403,7 +420,7 @@ class _AppShellState extends State<AppShell> {
                         final entry = switch (_tab) {
                           AppTab.follow => _followEntry,
                           AppTab.mine => _mineEntry,
-                          AppTab.explore => null,
+                          AppTab.explore || AppTab.history => null,
                         };
                         if (event is KeyUpEvent ||
                             event.logicalKey != LogicalKeyboardKey.arrowDown ||
@@ -458,13 +475,14 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  Widget _wide(Widget pages) {
+  Widget _wide(Widget pages, List<AppTab> tabs) {
     final roomy = MediaQuery.sizeOf(context).width >= 840;
     final expanded = roomy && widget.store.sideBarExpanded;
     return Scaffold(
       body: Row(
         children: [
           _SideBar(
+            tabs: tabs,
             selected: _tab,
             expanded: expanded,
             badged: _badged,
@@ -541,12 +559,14 @@ class _TabFade extends StatelessWidget {
 
 class _SideBar extends StatefulWidget {
   const _SideBar({
+    required this.tabs,
     required this.selected,
     required this.expanded,
     required this.badged,
     required this.onSelect,
     this.onToggle,
   });
+  final List<AppTab> tabs;
   final AppTab selected;
   final bool expanded;
   final Widget Function(AppTab tab, Widget icon) badged;
@@ -612,7 +632,7 @@ class _SideBarState extends State<_SideBar> {
                     ),
                   ),
                 ),
-                for (final tab in AppTab.values)
+                for (final tab in widget.tabs)
                   _SideItem(
                     tab: tab,
                     selected: tab == widget.selected,
