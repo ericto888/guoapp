@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,23 +31,92 @@ var hongguoAlbumSeasonFields = []string{
 	"series_status", "category_schema", "series_play_cnt", "publish_time",
 }
 
+// hongguoSeasonCacheTTL 与上游 hongguo.js 一致：整组季缓存 30 分钟。
+const hongguoSeasonCacheTTL = 30 * time.Minute
+
+// hongguoSeasonCacheEntry 缓存某个系列（按季 ID 索引）的完整季列表。
+type hongguoSeasonCacheEntry struct {
+	seasons []hongguoPlanSeason
+	fetched time.Time
+}
+
 // hongguoSeriesSeasons 汇总红果官方系列的全部季。
 //
 // 已上线季来自系列批量接口（带真实上线日期），待上线季来自 plan/v
 // （episode_cnt=0，日期用「预计X月X日上线」文案）。两者都失败才 ok=false。
+// 两路请求走不同 lane 并行：限流器按"站源#lane"加锁，同 lane 串行，
+// 不同 lane 可以同时在途，因此并行能把关键路径从 3 次往返降到 2 次。
+//
+// 成功且拿到批量数据后按每个季 ID 缓存 30 分钟，从同系列任意一季进入
+// 都能直接命中，重复打开不再发请求。
 func (downloader *Downloader) hongguoSeriesSeasons(ctx context.Context, seriesID string) ([]hongguoPlanSeason, bool) {
-	album, albumOK := downloader.hongguoAlbumSeasons(ctx, seriesID)
-	plan, planOK := downloader.hongguoPlanSeasons(ctx, seriesID)
+	if cached, ok := downloader.cachedHongguoSeasons(seriesID); ok {
+		return cached, true
+	}
+	var (
+		album   []hongguoPlanSeason
+		albumOK bool
+		plan    []hongguoPlanSeason
+		planOK  bool
+	)
+	var wait sync.WaitGroup
+	wait.Add(2)
+	go func() {
+		defer wait.Done()
+		album, albumOK = downloader.hongguoAlbumSeasons(ctx, seriesID)
+	}()
+	go func() {
+		defer wait.Done()
+		planCtx := context.WithValue(ctx, requestLaneKey{}, "hongguo-plan")
+		plan, planOK = downloader.hongguoPlanSeasons(planCtx, seriesID)
+	}()
+	wait.Wait()
 	if !albumOK && !planOK {
 		return nil, false
 	}
 	if !albumOK {
+		// 只有 plan/v 的结果时不上线日期不可靠，不写缓存。
 		return plan, true
 	}
 	if !planOK || len(plan) == 0 {
+		downloader.storeHongguoSeasons(album)
 		return album, true
 	}
-	return mergeHongguoUpcomingSeasons(album, plan), true
+	merged := mergeHongguoUpcomingSeasons(album, plan)
+	downloader.storeHongguoSeasons(merged)
+	return merged, true
+}
+
+// cachedHongguoSeasons 读取缓存（返回副本，避免调用方 append 改到缓存底层数组）。
+func (downloader *Downloader) cachedHongguoSeasons(seriesID string) ([]hongguoPlanSeason, bool) {
+	client := downloader.hongguoClient()
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	entry, ok := client.seasons[seriesID]
+	if !ok || time.Since(entry.fetched) >= hongguoSeasonCacheTTL {
+		return nil, false
+	}
+	return append([]hongguoPlanSeason{}, entry.seasons...), true
+}
+
+// storeHongguoSeasons 按列表中每个季 ID 各写一份，任一季入口都能命中。
+func (downloader *Downloader) storeHongguoSeasons(seasons []hongguoPlanSeason) {
+	if len(seasons) == 0 {
+		return
+	}
+	shared := append([]hongguoPlanSeason{}, seasons...)
+	entry := hongguoSeasonCacheEntry{seasons: shared, fetched: time.Now()}
+	client := downloader.hongguoClient()
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	if client.seasons == nil {
+		client.seasons = map[string]hongguoSeasonCacheEntry{}
+	}
+	for _, season := range shared {
+		if season.SeriesID != "" {
+			client.seasons[season.SeriesID] = entry
+		}
+	}
 }
 
 // hongguoAlbumSeasons 通过系列批量接口取「已上线季」列表。

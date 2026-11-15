@@ -58,6 +58,7 @@ type hongguoAppClient struct {
 	danmaku             map[string]hongguoDanmakuCacheEntry
 	danmakuPending      map[string]*hongguoDanmakuCall
 	tagCursors          map[string]hongguoTagCursor
+	seasons             map[string]hongguoSeasonCacheEntry
 }
 
 func (downloader *Downloader) hongguoClient() *hongguoAppClient {
@@ -69,7 +70,7 @@ func (downloader *Downloader) hongguoClient() *hongguoAppClient {
 			details: map[string]hongguoDetailEntry{}, pending: map[string]*hongguoDetailCall{},
 			searches: map[string]hongguoSearchEntry{}, searchPending: map[string]*hongguoSearchCall{}, searchIDs: map[string]string{},
 			suggestions: map[string]hongguoSuggestionEntry{}, suggestPending: map[string]*hongguoSuggestionCall{},
-			tagCursors: map[string]hongguoTagCursor{},
+			tagCursors: map[string]hongguoTagCursor{}, seasons: map[string]hongguoSeasonCacheEntry{},
 		}
 	})
 	return downloader.hongguo

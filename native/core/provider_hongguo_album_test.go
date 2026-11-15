@@ -116,3 +116,39 @@ func TestMergeHongguoUpcomingSeasonsAppendsMissingSeason(t *testing.T) {
 		t.Fatalf("待上线季日期应来自预计文案，实际 %+v", merged[2])
 	}
 }
+
+func TestHongguoSeasonCacheHitsEverySeasonID(t *testing.T) {
+	downloader := &Downloader{}
+	seasons := []hongguoPlanSeason{
+		{SeriesID: "11", SeasonIndex: 1, OnlineDate: "2026-07-31"},
+		{SeriesID: "12", SeasonIndex: 2, OnlineDate: "2026-08-01"},
+	}
+	downloader.storeHongguoSeasons(seasons)
+	for _, id := range []string{"11", "12"} {
+		cached, ok := downloader.cachedHongguoSeasons(id)
+		if !ok || len(cached) != 2 || cached[0].SeriesID != "11" {
+			t.Fatalf("从第 %s 季未命中缓存: ok=%v %+v", id, ok, cached)
+		}
+	}
+	// 调用方 append 不应污染缓存。
+	cached, _ := downloader.cachedHongguoSeasons("11")
+	_ = append(cached[:0], hongguoPlanSeason{SeriesID: "99"})
+	again, _ := downloader.cachedHongguoSeasons("11")
+	if again[0].SeriesID != "11" {
+		t.Fatalf("缓存被调用方修改: %+v", again)
+	}
+}
+
+func TestHongguoSeasonCacheExpires(t *testing.T) {
+	downloader := &Downloader{}
+	client := downloader.hongguoClient()
+	client.mu.Lock()
+	client.seasons["21"] = hongguoSeasonCacheEntry{
+		seasons: []hongguoPlanSeason{{SeriesID: "21", SeasonIndex: 1}},
+		fetched: time.Now().Add(-hongguoSeasonCacheTTL - time.Minute),
+	}
+	client.mu.Unlock()
+	if _, ok := downloader.cachedHongguoSeasons("21"); ok {
+		t.Fatal("超过 TTL 的缓存不应命中")
+	}
+}

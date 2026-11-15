@@ -336,6 +336,7 @@ func (engine *nativeEngine) hongguoOfficialSeasons(
 			Title:       strings.TrimSpace(current.Title),
 			SeasonIndex: currentIndex,
 			Episodes:    current.Episodes,
+			OnlineDate:  strings.TrimSpace(current.OnlineDate),
 		})
 		// 重新排序
 		sort.Slice(seasons, func(i, j int) bool {
@@ -345,6 +346,11 @@ func (engine *nativeEngine) hongguoOfficialSeasons(
 
 	var items []nativeSeason
 	for _, s := range seasons {
+		// 既没有真实上线日期、也没有「预计X月X日上线」的季直接放弃，
+		// 避免列表里出现无法判断是否上线的条目。
+		if strings.TrimSpace(s.OnlineDate) == "" {
+			continue
+		}
 		drama := nativeDrama{
 			ID:         providerDramaID(sourceHongguo, s.SeriesID),
 			Source:     sourceHongguo,
