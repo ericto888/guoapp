@@ -289,11 +289,8 @@ func hongguoDramaFromAny(v any, category string) Drama {
 		genre = tags[0]
 	}
 	online := hongguoOnlineDate(vd, time.Now())
-	if online == "" {
-		// 搜索联想只带 create_time（发布时刻），没有「今日上新」这类标签，
-		// 季卡片要靠它显示每季的上线时间。
-		online = providerTimestampDate(mapString(vd, "create_time"))
-	}
+	// 不使用 create_time 推断实际上线日期：它可能是作品创建/录入时间，
+	// 并不代表该季已正式上架。只接受 first_visible_time 或明确的上新标签。
 	// 搜索 API 和详情 API 都返回 related_album_id / season_index，
 	// 直接填进 Drama，季聚合就不再每条调详情页。
 	albumID := firstNonEmpty(mapString(vd, "related_album_id", "album_id"), mapString(m, "related_album_id", "album_id"))
