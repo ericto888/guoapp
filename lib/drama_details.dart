@@ -86,8 +86,6 @@ class DramaDetails extends ChangeNotifier {
         !_seasons.any((season) => season.drama.id == _drama.id)) {
       unawaited(_loadSeasons(generation));
     }
-    // 补充元数据（如红果上线日期）与剧集详情并行请求，不再等分集加载完才开始。
-    unawaited(_supplement(generation));
     try {
       final detail = await repository.detail(_drama);
       if (!_current(generation)) return;
@@ -99,6 +97,8 @@ class DramaDetails extends ChangeNotifier {
       _notify();
       repository.catalogUpdates.publish(_drama, retryCover: true);
       unawaited(store.refreshDrama(_drama).catchError((Object _) {}));
+      // 与上游保持一致：详情及分集返回后，再补充缺失的上线日期等元数据。
+      unawaited(_supplement(generation));
     } catch (error) {
       if (!_current(generation)) return;
       _error = error.toString();
