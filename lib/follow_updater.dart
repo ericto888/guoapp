@@ -76,17 +76,16 @@ class FollowUpdater with WidgetsBindingObserver {
   /// 分批核对预约对应的官方季数据。只按精确 season/book ID 匹配，
   /// 避免同名作品或其他季上线时误报；必须检测到实际集数才发上线提醒。
   Future<void> _checkReservations() async {
-    final pending = store.seasonReservations
-        .where((item) => item.notifiedAt == 0)
-        .toList();
-    if (pending.isEmpty || !_valid || _checkingReservations) return;
+    // 已提醒的预约也要继续同步官方元数据，以便修正历史错误日期和集数。
+    final reservations = store.seasonReservations.toList();
+    if (reservations.isEmpty || !_valid || _checkingReservations) return;
     _checkingReservations = true;
-    // 预约超过单批上限时轮转检查，避免排在前面的未上线作品长期占满批次。
-    final start = _reservationOffset % pending.length;
-    final count = min(_reservationBatchSize, pending.length);
-    final first = pending.skip(start).take(count).toList();
-    final batch = [...first, ...pending.take(count - first.length)];
-    _reservationOffset = (start + batch.length) % pending.length;
+    // 预约超过单批上限时轮转检查，避免后面的预约长期得不到刷新。
+    final start = _reservationOffset % reservations.length;
+    final count = min(_reservationBatchSize, reservations.length);
+    final first = reservations.skip(start).take(count).toList();
+    final batch = [...first, ...reservations.take(count - first.length)];
+    _reservationOffset = (start + batch.length) % reservations.length;
     try {
       for (final reservation in batch) {
         if (!_valid) return;
@@ -97,10 +96,13 @@ class FollowUpdater with WidgetsBindingObserver {
           final current = seasons.where(
             (season) => season.drama.id == reservation.id,
           ).firstOrNull;
-          if (current == null ||
-              (current.episodes <= 0 && current.drama.episodes <= 0)) {
-            continue;
-          }
+          if (current == null) continue;
+
+          // 先刷新本地快照：覆盖旧日期，并把官方实际集数写回预约。
+          await store.refreshSeasonReservation(reservation.id, current);
+          if (current.episodes <= 0 && current.drama.episodes <= 0) continue;
+          if (reservation.notifiedAt > 0) continue;
+
           final notify = onReservationOnline;
           if (notify == null) continue;
           await notify(reservation, current);
