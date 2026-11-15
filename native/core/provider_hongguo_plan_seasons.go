@@ -21,7 +21,7 @@ type hongguoPlanSeason struct {
 	Cover       string
 	Description string
 	DisablePlay bool
-	// OnlineDate 待上线季的预计上线日期（yyyy-MM-dd），常规季为空。
+	// OnlineDate 已上线季的实际上线日期或待上线季的预计上线日期（yyyy-MM-dd）。
 	OnlineDate string
 }
 
@@ -194,7 +194,7 @@ func parseHongguoPlanSeasons(result map[string]any, bookID string) ([]hongguoPla
 			Cover:       mapString(row, "cover"),
 			Description: mapString(row, "video_desc"),
 			DisablePlay: anyBool(row["disable_play"]),
-			OnlineDate:  hongguoUpcomingDate(row),
+			OnlineDate:  hongguoPlanSeasonOnlineDate(row, episodes),
 		}
 		// 过滤不可播放的季（付费但未购买的）；待上线季保留（episodes=0，
 		// 客户端 DramaSeason.upcoming 会显示「待上线」并禁用点击）。
@@ -205,6 +205,17 @@ func parseHongguoPlanSeasons(result map[string]any, bookID string) ([]hongguoPla
 	}
 
 	return seasons, hasMore == "1" || hasMore == "true", nextOffset
+}
+
+
+// hongguoPlanSeasonOnlineDate 按季状态解析上线日期。
+// 已上线季只使用红果明确的实际上线元数据；待上线季继续使用预约文案中的预计日期。
+// 不使用 create_time，避免把作品创建时间误当成实际上线时间。
+func hongguoPlanSeasonOnlineDate(row map[string]any, episodes int) string {
+	if episodes > 0 {
+		return hongguoOnlineDate(row, time.Now())
+	}
+	return hongguoUpcomingDate(row)
 }
 
 // hongguoUpcomingDate 从待上线季的 sub_title_list 提取预计上线日期。
