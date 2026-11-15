@@ -46,6 +46,14 @@
 - `lib/follow_updater.dart`: local adds lifecycle-triggered, rotating batch reservation checks and in-app online callbacks; upstream provides generic periodic follow refresh. Merge local reservation checks into upstream updater.
 - `ios/Runner/AppDelegate.swift`: preserve local `activateAudio` and launch audio-session activation in addition to upstream's existing device/proxy channels.
 
+## Completed first migration slice
+
+- Adopted upstream `lib/playback_preferences.dart`, bringing in the `portraitStyleForWide` preference and upstream playback preference fields while retaining the shared `VideoFit` implementation.
+- Ported the `横屏视频也使用竖屏样式` setting into `lib/ui/settings/settings_sections.dart`.
+- Merged the setting into `lib/ui/player/playback_page.dart`: landscape media can remain in the portrait player while the device is portrait; the portrait page exposes a fullscreen action to enter landscape playback.
+- Added the upstream `followSensor` option to the local landscape player without removing the local orientation re-arm behavior.
+- GitHub compare confirms the working branch is 7 commits ahead of `main`, with `main` untouched. These changes have not yet been Dart-formatted, analyzed, built or device-tested.
+
 ## Next audit / migration order
 
 1. Complete the file map for player UI/orientation, playback ownership, series/reservation state and local persistence.
