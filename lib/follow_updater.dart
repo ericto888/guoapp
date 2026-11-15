@@ -56,7 +56,10 @@ class FollowUpdater with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _tick();
+    if (state == AppLifecycleState.resumed) {
+      unawaited(ReservationNotifier.refreshPermission());
+      _tick();
+    }
   }
 
   /// 分批核对预约对应的官方季数据。只按精确 season/book ID 匹配，
