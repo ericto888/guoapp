@@ -72,7 +72,9 @@ void main() {
       repository,
       store,
       startDelay: const Duration(days: 1),
-      onReservationOnline: (_, __) async => notified = true,
+      onReservationOnline: (_, __) async {
+        notified = true;
+      },
     );
     addTearDown(updater.dispose);
     updater.start();
