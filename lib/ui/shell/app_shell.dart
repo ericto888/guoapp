@@ -13,6 +13,8 @@ import '../app_scope.dart';
 import '../explore/explore_page.dart';
 import '../explore/source_actions.dart';
 import '../follow/follow_page.dart';
+import '../detail/detail_page.dart';
+import '../widgets/cover_image.dart';
 import '../mine/mine_page.dart';
 import '../update_prompt.dart';
 import '../widgets/bar_button.dart';
@@ -99,6 +101,7 @@ class _AppShellState extends State<AppShell> {
     _followUpdater ??= FollowUpdater(
       AppScope.of(context).repository,
       widget.store,
+      onReservationOnline: _showReservationOnline,
     )..start();
   }
 
@@ -123,6 +126,148 @@ class _AppShellState extends State<AppShell> {
     _downloads?.dispose();
     _followUpdater?.dispose();
     super.dispose();
+  }
+
+  Future<void> _showReservationOnline(
+    SeasonReservation reservation,
+    DramaSeason season,
+  ) async {
+    if (!mounted) return;
+    final watch = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => Transform.translate(
+        offset: Offset(0, -MediaQuery.sizeOf(dialogContext).height * 0.035),
+        child: Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '预约作品已上线',
+                          style: Theme.of(dialogContext).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      Icon(
+                        Icons.notifications_active_outlined,
+                        color: Theme.of(dialogContext).colorScheme.primary,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 88,
+                        height: 124,
+                        child: DramaCover(
+                          drama: season.drama,
+                          details: false,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 5),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                season.drama.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(dialogContext)
+                                    .textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                              const SizedBox(height: 10),
+                              DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: Theme.of(dialogContext)
+                                      .colorScheme
+                                      .primaryContainer,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 9,
+                                    vertical: 5,
+                                  ),
+                                  child: Text(
+                                    '${reservation.label}已上线',
+                                    style: TextStyle(
+                                      color: Theme.of(dialogContext)
+                                          .colorScheme
+                                          .onPrimaryContainer,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 9),
+                              Text(
+                                '你预约的剧集现在可以观看了',
+                                style: Theme.of(dialogContext)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                      color: Theme.of(dialogContext)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () =>
+                              Navigator.of(dialogContext).pop(false),
+                          child: const Text('稍后再看'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () =>
+                              Navigator.of(dialogContext).pop(true),
+                          child: const Text('立即观看'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (watch == true && mounted) {
+      openPage<void>(
+        context,
+        (_) => DetailPage(store: widget.store, drama: season.drama),
+      );
+    }
   }
 
   void _select(AppTab tab) => setState(() => _tab = tab);

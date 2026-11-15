@@ -728,6 +728,33 @@ class LocalStore extends ChangeNotifier {
         .toList();
   }
 
+  /// 标记某条预约的上线提醒已发送，避免下次启动或轮询重复提醒。
+  Future<void> markSeasonReservationNotified(String id) {
+    final epoch = _epoch;
+    return _queue(() async {
+      if (locked || epoch != _epoch) return;
+      final current = _seasonReservations[id];
+      if (current == null || current.notifiedAt > 0) return;
+      final updated = SeasonReservation(
+        drama: current.drama,
+        season: current.season,
+        unit: current.unit,
+        onlineDate: current.onlineDate,
+        reservedAt: current.reservedAt,
+        notifiedAt: DateTime.now().millisecondsSinceEpoch,
+      );
+      final entries = Map<String, SeasonReservation>.of(_seasonReservations)
+        ..[id] = updated;
+      await _write(_userFile(_current, 'seasonReservations'), {
+        for (final entry in entries.entries) entry.key: entry.value.toJson(),
+      });
+      _seasonReservations
+        ..clear()
+        ..addAll(entries);
+      _notify();
+    });
+  }
+
   bool isSeasonReserved(String id) => _seasonReservations.containsKey(id);
 
   Iterable<SeasonReservation> get seasonReservations =>

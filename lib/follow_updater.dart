@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:flutter/widgets.dart';
+
 import 'core_bridge.dart';
 import 'follow_state.dart';
 import 'local_store.dart';
 import 'models.dart';
 
-class FollowUpdater {
+class FollowUpdater with WidgetsBindingObserver {
   FollowUpdater(
     this.repository,
     this.store, {
@@ -15,6 +17,7 @@ class FollowUpdater {
     this.recheck = const Duration(hours: 6),
     this.limit = 10,
     DateTime Function()? clock,
+    this.onReservationOnline,
   }) : _epoch = store.profileEpoch,
        _clock = clock ?? DateTime.now;
 
@@ -27,10 +30,16 @@ class FollowUpdater {
   final Duration recheck;
   final int limit;
   final DateTime Function() _clock;
+  final Future<void> Function(
+    SeasonReservation reservation,
+    DramaSeason season,
+  )? onReservationOnline;
   final int _epoch;
   Timer? _timer;
   bool _running = false;
   bool _disposed = false;
+  bool _checkingReservations = false;
+  static const _reservationBatchSize = 20;
 
   bool get _valid =>
       !_disposed && !store.locked && _epoch == store.profileEpoch;
@@ -39,6 +48,8 @@ class FollowUpdater {
     if (_timer != null || !repository.supportsSourceManagement || !_valid) {
       return;
     }
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_checkReservations());
     _timer = Timer(startDelay, () {
       _timer = Timer.periodic(interval, (_) => _tick());
       _tick();
@@ -46,6 +57,50 @@ class FollowUpdater {
   }
 
   void _tick() => unawaited(run().catchError((Object _) {}));
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _tick();
+      unawaited(_checkReservations());
+    }
+  }
+
+  /// 分批核对预约对应的官方季数据。只按精确 season/book ID 匹配，
+  /// 避免同名作品或其他季上线时误报；必须检测到实际集数才发上线提醒。
+  Future<void> _checkReservations() async {
+    final pending = store.seasonReservations
+        .where((item) => item.notifiedAt == 0)
+        .toList();
+    if (pending.isEmpty || !_valid || _checkingReservations) return;
+    _checkingReservations = true;
+    final batch = pending.take(_reservationBatchSize).toList();
+    try {
+      for (final reservation in batch) {
+        if (!_valid) return;
+        try {
+          final seasons = await repository
+              .seasons(reservation.drama)
+              .timeout(const Duration(seconds: 25));
+          final current = seasons.where(
+            (season) => season.drama.id == reservation.id,
+          ).firstOrNull;
+          if (current == null ||
+              (current.episodes <= 0 && current.drama.episodes <= 0)) {
+            continue;
+          }
+          final notify = onReservationOnline;
+          if (notify == null) continue;
+          await notify(reservation, current);
+          await store.markSeasonReservationNotified(reservation.id);
+        } catch (_) {
+          // 网络请求或弹窗失败时保留未提醒状态，下次打开 App 再检查。
+        }
+      }
+    } finally {
+      _checkingReservations = false;
+    }
+  }
 
   List<Drama> _due(Map<String, FollowCheck> checks) {
     final now = _clock();
@@ -98,6 +153,7 @@ class FollowUpdater {
 
   void dispose() {
     _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
   }
 }
