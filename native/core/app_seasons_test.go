@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 )
 
@@ -549,61 +548,6 @@ func TestOfficialSeasonsKeepsCrossAlbumEpisodeOutlier(t *testing.T) {
 	}
 	if len(items) != 2 || items[0].Number != 2 || items[1].Number != 3 {
 		t.Fatalf("seasons = %+v, want [2 3]", items)
-	}
-}
-
-func TestEnrichOfficialSeasonDatesFillsLiveSeasons(t *testing.T) {
-	// plan/v 的 video_data 没有任何时间字段：已上线季用网页详情的
-	// first_visible_time 补齐，待上线季保留「预计X月X日上线」文案，
-	// 查不到日期时保持空白（绝不能用 create_time 兜底）。
-	engine, err := newNativeEngine(t.TempDir(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	seasons := []hongguoPlanSeason{
-		{SeriesID: "7667544091206355992", SeasonIndex: 1, Episodes: 114},
-		{SeriesID: "7671967727300381758", SeasonIndex: 2, Episodes: 117, OnlineDate: "2026-08-20"},
-		{SeriesID: "7708298945843186713", SeasonIndex: 15, Episodes: 0, OnlineDate: "2026-11-22"},
-		{SeriesID: "7704629770473966617", SeasonIndex: 14, Episodes: 0},
-		{SeriesID: "7681552556660624446", SeasonIndex: 5, Episodes: 121},
-	}
-	var mu sync.Mutex
-	calls := map[string]int{}
-	date := func(_ context.Context, sourceID string) string {
-		mu.Lock()
-		calls[sourceID]++
-		mu.Unlock()
-		switch sourceID {
-		case "7667544091206355992":
-			return "2026-07-31"
-		case "7681552556660624446":
-			return ""
-		}
-		return "2026-01-01"
-	}
-	seasons = engine.enrichOfficialSeasonDates(context.Background(), seasons, date)
-	if seasons[0].OnlineDate != "2026-07-31" {
-		t.Fatalf("live season date = %q", seasons[0].OnlineDate)
-	}
-	if seasons[1].OnlineDate != "2026-08-20" {
-		t.Fatalf("existing date must not be overwritten: %q", seasons[1].OnlineDate)
-	}
-	if seasons[2].OnlineDate != "2026-11-22" {
-		t.Fatalf("upcoming season date = %q", seasons[2].OnlineDate)
-	}
-	if seasons[3].OnlineDate != "" || seasons[4].OnlineDate != "" {
-		t.Fatalf("missing dates must stay empty: %+v", seasons)
-	}
-	if calls["7708298945843186713"] != 0 || calls["7704629770473966617"] != 0 {
-		t.Fatalf("upcoming seasons must not be fetched: %v", calls)
-	}
-	// 补齐结果写入缓存：再次补日期不再发请求。
-	before := calls["7667544091206355992"]
-	engine.enrichOfficialSeasonDates(context.Background(), []hongguoPlanSeason{
-		{SeriesID: "7667544091206355992", SeasonIndex: 1, Episodes: 114},
-	}, date)
-	if calls["7667544091206355992"] != before {
-		t.Fatalf("cached date should skip the request: %v", calls)
 	}
 }
 

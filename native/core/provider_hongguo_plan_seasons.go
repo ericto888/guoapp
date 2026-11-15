@@ -34,12 +34,7 @@ var hongguoUpcomingDatePattern = regexp.MustCompile(`预计(\d{1,2})月(\d{1,2})
 // 这个接口按 book_id（即剧的 series_id）返回官方认可的完整系列季列表，
 // 含待上线季（episode_cnt=0、sub_title_list 带「预计X月X日上线」），
 // 不同系列（同名不同作者）互不污染，不依赖搜索召回。
-// ok 表示只读请求成功且拿到了视频季数据；返回空列表表示接口没有给当前 book_id
-// 提供官方系列分组。
-//
-// 注意：从某些季进入时（实测「京师第一纨绔第十四季」），接口只在 book_data
-// 里返回原著小说、video_data 为空。这不代表该剧没有系列，必须返回 ok=false
-// 让上层回退到标题聚合，否则季列表会变成空。
+// ok 表示只读请求成功；返回空列表表示接口没有给当前 book_id 提供官方系列分组。
 //
 // 关键参数（query string，非 body）：
 //   - scene=10, from=single_col_same_ip_series 让红果返回"同系列的季列表"
@@ -50,7 +45,6 @@ func (downloader *Downloader) hongguoPlanSeasons(ctx context.Context, bookID str
 	}
 	var seasons []hongguoPlanSeason
 	requestSucceeded := false
-	bookOnly := false
 	offset := ""
 	for page := 0; page < 3; page++ {
 		extra := url.Values{}
@@ -69,8 +63,7 @@ func (downloader *Downloader) hongguoPlanSeasons(ctx context.Context, bookID str
 			return nil, false
 		}
 		requestSucceeded = true
-		batch, hasMore, next, onlyBook := parseHongguoPlanSeasons(result, bookID)
-		bookOnly = bookOnly || onlyBook
+		batch, hasMore, next := parseHongguoPlanSeasons(result, bookID)
 		seasons = append(seasons, batch...)
 		if !hasMore || next == "" {
 			break
@@ -78,10 +71,6 @@ func (downloader *Downloader) hongguoPlanSeasons(ctx context.Context, bookID str
 		offset = next
 	}
 	if len(seasons) == 0 {
-		if bookOnly {
-			// 只带回原著小说、没有视频季：视为未命中，交给标题聚合兜底。
-			return nil, false
-		}
 		return nil, requestSucceeded
 	}
 	return seasons, true
@@ -110,18 +99,14 @@ func hongguoPlanGroupContainsBook(videoList []any, bookID string) bool {
 // video_data[]（同系列各季，content_type=1004 正常季 / 1007 待上线预告）
 // 与 book_data[]（原著小说，跳过）；has_more/next_offset 用于分页。
 // 不同 show_type=547 卡片之间绝不合并。
-//
-// bookOnly 表示响应里只带回了原著小说（book_data），没有任何视频季数据
-// （video_data）。这种响应不能说明当前 book_id 真的没有系列。
-func parseHongguoPlanSeasons(result map[string]any, bookID string) ([]hongguoPlanSeason, bool, string, bool) {
+func parseHongguoPlanSeasons(result map[string]any, bookID string) ([]hongguoPlanSeason, bool, string) {
 	data := result["data"]
 	if data == nil {
-		return nil, false, "", false
+		return nil, false, ""
 	}
 
 	var videoList []any
 	hasMore, nextOffset := "", ""
-	bookOnly := false
 	switch d := data.(type) {
 	case []any:
 		// data[] 可能包含多个同名作品卡片。只接受 show_type=547，
@@ -137,10 +122,6 @@ func parseHongguoPlanSeasons(result map[string]any, bookID string) ([]hongguoPla
 				continue
 			}
 			candidate := anyList(m["video_data"])
-			if len(candidate) == 0 && len(anyList(m["book_data"])) > 0 {
-				bookOnly = true
-				continue
-			}
 			if !hongguoPlanGroupContainsBook(candidate, bookID) {
 				continue
 			}
@@ -152,22 +133,19 @@ func parseHongguoPlanSeasons(result map[string]any, bookID string) ([]hongguoPla
 	case map[string]any:
 		showType := mapString(d, "show_type")
 		if showType != "" && showType != "547" {
-			return nil, false, "", false
+			return nil, false, ""
 		}
 		videoList = anyList(d["video_data"])
-		if len(videoList) == 0 && len(anyList(d["book_data"])) > 0 {
-			return nil, false, "", true
-		}
 		if !hongguoPlanGroupContainsBook(videoList, bookID) {
-			return nil, false, "", false
+			return nil, false, ""
 		}
 		hasMore = mapString(d, "has_more")
 		nextOffset = mapString(d, "next_offset")
 	default:
-		return nil, false, "", false
+		return nil, false, ""
 	}
 	if len(videoList) == 0 {
-		return nil, false, "", bookOnly
+		return nil, false, ""
 	}
 
 	var seasons []hongguoPlanSeason
@@ -226,8 +204,9 @@ func parseHongguoPlanSeasons(result map[string]any, bookID string) ([]hongguoPla
 		seasons = append(seasons, season)
 	}
 
-	return seasons, hasMore == "1" || hasMore == "true", nextOffset, bookOnly
+	return seasons, hasMore == "1" || hasMore == "true", nextOffset
 }
+
 
 // hongguoPlanSeasonOnlineDate 按季状态解析上线日期。
 // 已上线季只使用红果明确的实际上线元数据；待上线季继续使用预约文案中的预计日期。
