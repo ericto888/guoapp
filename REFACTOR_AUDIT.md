@@ -27,6 +27,25 @@
 - The migration therefore cannot be a blind overwrite of `native/core`: provider registration, host/network policy, module storage, module install/update, bundled modules, app dispatch and tests must move as one compatible unit.
 - User-facing drama IDs and local snapshots are persisted. Existing history, follows, reservations, downloads, provider states and playback progress must remain readable; unknown snapshot keys can make old snapshots fail to load.
 
+
+### Player UI / orientation audit
+
+| File | Observed divergence | Treatment |
+| --- | --- | --- |
+| `lib/ui/player/playback_page.dart` | Local version protects the previous layout while the next video's aspect ratio is unknown and routes lifecycle events through `onLifecycleEvent`; upstream has a `portraitStyleForWide` preference path and additional desktop fullscreen handling. | Merge: keep local no-flicker aspect transition and lifecycle forwarding; port upstream's selectable portrait-style-for-wide behavior and desktop/fullscreen handling. |
+| `lib/ui/player/portrait_player_page.dart` | Local adds lifecycle forwarding, season-aware swipe-to-next-season, quiet auto-switch behavior and its own video surface/zoom calculation. Upstream includes mini-player integration and different fit/zoom handling. | Merge local season/lifecycle behavior with upstream UI capabilities; preserve the portrait container's ability to host landscape media. |
+| `lib/ui/player/landscape_player_page.dart` | Local has lifecycle forwarding, season-aware paging, orientation re-arm after exiting fullscreen and more extensive UI code; upstream has cast integration, mini-player integration, fit panel and sensor-follow behavior. | Merge both; do not replace local orientation exit sequencing or season paging. |
+| `lib/playback_preferences.dart` | Upstream has extra settings including `portraitStyleForWide`, swipe episode behavior, boost speed and danmaku speed. Local has a smaller preference schema and additional video-fit documentation. | Adopt upstream preference model, retain local `VideoFit` behavior, and add compatibility defaults for existing settings. |
+| `lib/playback_session.dart` | Local has deep playback lifecycle and recovery changes; upstream is materially simpler. | Local file remains protected; adapt upstream UI to the preserved session API rather than downgrading the session. |
+
+### Shared state / bridge audit
+
+- `lib/local_store.dart`: local adds season reservation persistence and operations; upstream has additional storage hardening, missing-source record reporting and newer settings. Merge both. Do not replace the local file wholesale.
+- `lib/models.dart`: local has a hard-coded source catalogue; upstream has dynamic source descriptors and capability flags for installed JS modules. Upstream model architecture is the base; migrate local-only drama metadata and reservation/season model types into it.
+- `lib/core_bridge.dart`: upstream exposes module install/store APIs and dynamic source management; local exposes playback stream health/epoch and Hongguo-specific methods. Merge the bridge contract deliberately, retaining stream epoch health and moving provider-specific operations behind the module/provider boundary where possible.
+- `lib/follow_updater.dart`: local adds lifecycle-triggered, rotating batch reservation checks and in-app online callbacks; upstream provides generic periodic follow refresh. Merge local reservation checks into upstream updater.
+- `ios/Runner/AppDelegate.swift`: preserve local `activateAudio` and launch audio-session activation in addition to upstream's existing device/proxy channels.
+
 ## Next audit / migration order
 
 1. Complete the file map for player UI/orientation, playback ownership, series/reservation state and local persistence.
