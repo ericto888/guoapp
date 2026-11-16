@@ -107,13 +107,19 @@ class FollowUpdater with WidgetsBindingObserver {
 
           // 先刷新本地快照：覆盖旧日期，并把官方实际集数写回预约。
           await store.refreshSeasonReservation(reservation.id, current);
+          // 正片上线可能换 series_id，快照会被重新归档到新 id，
+          // 后续判断与标记必须用刷新后的记录，否则会重复提醒。
+          final refreshed = store.seasonReservations
+                  .where((item) => item.id == current.drama.id)
+                  .firstOrNull ??
+              reservation;
           if (current.episodes <= 0 && current.drama.episodes <= 0) continue;
-          if (reservation.notifiedAt > 0) continue;
+          if (refreshed.notifiedAt > 0) continue;
 
           final notify = onReservationOnline;
           if (notify == null) continue;
-          await notify(reservation, current);
-          await store.markSeasonReservationNotified(reservation.id);
+          await notify(refreshed, current);
+          await store.markSeasonReservationNotified(refreshed.id);
         } catch (_) {
           // 网络请求或弹窗失败时保留未提醒状态，下次打开 App 再检查。
         }

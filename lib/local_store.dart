@@ -250,9 +250,10 @@ class LocalStore extends ChangeNotifier {
         final reservation = SeasonReservation.fromJson(
           Map<String, dynamic>.from(entry.value as Map),
         );
-        if (entry.key != reservation.id ||
-            _seasonReservations.containsKey(reservation.id)) {
-          throw const FormatException('预约记录无效');
+        // 红果正片上线后可能更换 series_id，快照里的 id 会与写入时的键不一致。
+        // 这里统一按快照 id 重新归档，避免整条预约在重启后被当成无效记录丢弃。
+        if (_seasonReservations.containsKey(reservation.id)) {
+          throw const FormatException('预约记录重复');
         }
         _seasonReservations[reservation.id] = reservation;
       } catch (_) {}
@@ -779,8 +780,13 @@ class LocalStore extends ChangeNotifier {
       );
       if (jsonEncode(updated.toJson()) == jsonEncode(current.toJson())) return;
 
+      // 上线后官方季可能换了新 series_id：快照 id 变化时必须同步改键，
+      // 否则下次启动会因键与快照 id 不一致而丢掉整条预约。
       final entries = Map<String, SeasonReservation>.of(_seasonReservations)
-        ..[id] = updated;
+        ..remove(id);
+      if (!entries.containsKey(latestDrama.id)) {
+        entries[latestDrama.id] = updated;
+      }
       await _write(_userFile(_current, 'seasonReservations'), {
         for (final entry in entries.entries) entry.key: entry.value.toJson(),
       });

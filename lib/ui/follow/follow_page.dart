@@ -935,6 +935,12 @@ class _SeasonReservationSwitcherState extends State<_SeasonReservationSwitcher>
     await Future.wait(
       List.generate(reservations.length.clamp(0, 4).toInt(), (_) => worker()),
     );
+    // 官方确认已上线后写回本地快照：追剧页的刷新结果只存在内存里，
+    // 重启后会退回预约时的旧快照（集数仍为 0），已上线的季会重新显示成待上线。
+    for (final entry in refreshed.entries) {
+      if (entry.value.episodes <= 0) continue;
+      unawaited(widget.store.refreshSeasonReservation(entry.key, entry.value));
+    }
     if (!mounted || generation != _generation) return;
     setState(() {
       _fresh

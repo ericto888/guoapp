@@ -359,6 +359,37 @@ void main() {
     });
   });
 
+  test('预约季换 series_id 后重新归档并能在重启后保留', () async {
+    final store = await _open();
+    final reservation = SeasonReservation(
+      drama: drama('old', title: '被贬北凉的弃子 第十二季'),
+      season: 12,
+      reservedAt: DateTime(2026, 11, 1).millisecondsSinceEpoch,
+    );
+    await store.toggleSeasonReservation(reservation);
+
+    final live = Drama(
+      id: 'hongguo:new',
+      source: 'hongguo',
+      sourceId: 'new',
+      title: '被贬北凉的弃子 第十二季',
+      episodes: 128,
+      onlineDate: '2026-11-16',
+    );
+    await store.refreshSeasonReservation(
+      reservation.id,
+      DramaSeason(number: 12, title: live.title, episodes: 128, drama: live),
+    );
+
+    expect(store.seasonReservations.single.id, 'hongguo:new');
+    expect(store.seasonReservations.single.drama.episodes, 128);
+
+    final restarted = await restartStore(store);
+    expect(restarted.seasonReservations.single.id, 'hongguo:new');
+    expect(restarted.seasonReservations.single.drama.episodes, 128);
+    expect(restarted.seasonReservations.single.onlineDate, '2026-11-16');
+  });
+
   group('backup', () {
     test(
       'launch blur only applies while the cover button is enabled',
