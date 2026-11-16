@@ -33,7 +33,8 @@ class FollowUpdater with WidgetsBindingObserver {
   final Future<void> Function(
     SeasonReservation reservation,
     DramaSeason season,
-  )? onReservationOnline;
+  )?
+  onReservationOnline;
   final int _epoch;
   Timer? _timer;
   Timer? _reservationTimer;
@@ -47,9 +48,14 @@ class FollowUpdater with WidgetsBindingObserver {
       !_disposed && !store.locked && _epoch == store.profileEpoch;
 
   void start() {
-    if (_timer != null || !repository.supportsSourceManagement || !_valid) {
+    if (_timer != null || !repository.supportsSourceManagement) return;
+    if (!_valid) {
+      // 启动时可能仍处于锁定态，之前直接返回会导致整个会话都不再检查，
+      // 这里改为等解锁后再启动。
+      store.addListener(_startWhenReady);
       return;
     }
+    store.removeListener(_startWhenReady);
     WidgetsBinding.instance.addObserver(this);
     unawaited(_checkReservations());
     // 预约检查独立于普通追剧刷新，App 使用期间每 10 分钟核对一次。
@@ -96,9 +102,7 @@ class FollowUpdater with WidgetsBindingObserver {
           final seasons = await repository
               .seasons(reservation.drama)
               .timeout(const Duration(seconds: 25));
-          final current = seasons.where(
-            (season) => season.drama.id == reservation.id,
-          ).firstOrNull;
+          final current = reservation.matchSeason(seasons);
           if (current == null) continue;
 
           // 先刷新本地快照：覆盖旧日期，并把官方实际集数写回预约。
@@ -168,8 +172,14 @@ class FollowUpdater with WidgetsBindingObserver {
     }
   }
 
+  void _startWhenReady() {
+    if (_disposed || _timer != null || !_valid) return;
+    start();
+  }
+
   void dispose() {
     _disposed = true;
+    store.removeListener(_startWhenReady);
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _reservationTimer?.cancel();

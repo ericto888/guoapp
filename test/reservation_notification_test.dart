@@ -77,14 +77,55 @@ void main() {
     expect(notices, 1, reason: '同一条预约只提醒一次');
   });
 
-  testWidgets('上线提醒弹窗显示预约季信息，稍后再看不跳转', (tester) async {
-    final reservation = const SeasonReservation(
-      drama: Drama(
-        id: '',
+  test('正片上线后 series_id 变化仍按季号与标题匹配并提醒', () async {
+    final store = await openStore();
+    final repository = _ReservationRepository();
+    final reservation = SeasonReservation(
+      drama: const Drama(
+        id: 'hongguo:old-book',
         source: 'hongguo',
         title: '预约剧第二季',
-        episodes: 0,
       ),
+      season: 2,
+      onlineDate: '2026-11-16',
+      reservedAt: 1,
+    );
+    await store.toggleSeasonReservation(reservation);
+
+    var notices = 0;
+    final updater = FollowUpdater(
+      repository,
+      store,
+      startDelay: const Duration(days: 1),
+      onReservationOnline: (_, _) async => notices++,
+    );
+    addTearDown(updater.dispose);
+
+    repository.seasonLists[reservation.id] = [
+      const DramaSeason(
+        number: 2,
+        title: '预约剧第二季',
+        episodes: 128,
+        drama: Drama(
+          id: 'hongguo:new-book',
+          source: 'hongguo',
+          title: '预约剧第二季',
+          episodes: 128,
+        ),
+      ),
+    ];
+    updater.start();
+    await pumpEventQueue();
+    expect(notices, 1, reason: 'book_id 变化不应阻断上线提醒');
+    final updated = store.seasonReservations.single;
+    expect(updated.drama.episodes, 128);
+    expect(updated.isLive, isTrue);
+    expect(updated.notifiedAt, greaterThan(0));
+  });
+
+  testWidgets('上线提醒弹窗显示预约季信息，稍后再看不跳转', (tester) async {
+    final reservation = const SeasonReservation(
+      drama: Drama(id: '', source: 'hongguo', title: '预约剧第二季', episodes: 0),
       season: 2,
       reservedAt: 1,
     );
@@ -92,12 +133,7 @@ void main() {
       number: 2,
       title: '预约剧第二季',
       episodes: 12,
-      drama: Drama(
-        id: '',
-        source: 'hongguo',
-        title: '预约剧第二季',
-        episodes: 12,
-      ),
+      drama: Drama(id: '', source: 'hongguo', title: '预约剧第二季', episodes: 12),
     );
     bool? watch;
     await tester.pumpWidget(
@@ -139,12 +175,7 @@ void main() {
 
   testWidgets('上线提醒弹窗点击立即观看返回 true', (tester) async {
     final reservation = const SeasonReservation(
-      drama: Drama(
-        id: '',
-        source: 'hongguo',
-        title: '预约剧第三季',
-        episodes: 0,
-      ),
+      drama: Drama(id: '', source: 'hongguo', title: '预约剧第三季', episodes: 0),
       season: 3,
       unit: '季',
       reservedAt: 1,
@@ -153,12 +184,7 @@ void main() {
       number: 3,
       title: '预约剧第三季',
       episodes: 8,
-      drama: Drama(
-        id: '',
-        source: 'hongguo',
-        title: '预约剧第三季',
-        episodes: 8,
-      ),
+      drama: Drama(id: '', source: 'hongguo', title: '预约剧第三季', episodes: 8),
     );
     bool? watch;
     await tester.pumpWidget(

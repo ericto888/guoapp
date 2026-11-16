@@ -742,7 +742,7 @@ class LocalStore extends ChangeNotifier {
     return _queue(() async {
       if (locked || epoch != _epoch) return;
       final current = _seasonReservations[id];
-      if (current == null || season.drama.id != id) return;
+      if (current == null) return;
 
       final merged = current.drama.merge(season.drama);
       final episodes = season.episodes > merged.episodes

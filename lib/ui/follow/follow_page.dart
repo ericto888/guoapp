@@ -810,13 +810,14 @@ class _SeasonReservationSwitcher extends StatefulWidget {
       _SeasonReservationSwitcherState();
 }
 
-class _SeasonReservationSwitcherState
-    extends State<_SeasonReservationSwitcher> {
+class _SeasonReservationSwitcherState extends State<_SeasonReservationSwitcher>
+    with WidgetsBindingObserver {
   final Map<String, DramaSeason> _fresh = {};
   String _signature = '';
   int _generation = 0;
   bool _showLive = false;
   bool _loading = false;
+  Timer? _refreshTimer;
 
   String _key(Iterable<SeasonReservation> reservations) =>
       (reservations.toList()..sort((a, b) => a.id.compareTo(b.id)))
@@ -826,10 +827,29 @@ class _SeasonReservationSwitcherState
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // initState 阶段还不能依赖 AppScope，首帧后再刷新预约季数据。
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _refresh();
+      if (mounted) _refresh(force: true);
     });
+    // 追剧页常驻 IndexedStack，签名不变就不会重刷；这里定期重取一次，
+    // 否则预约的季上线后卡片会一直停在「待上线」。
+    _refreshTimer = Timer.periodic(
+      const Duration(minutes: 10),
+      (_) => _refresh(force: true),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refresh(force: true);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -885,10 +905,11 @@ class _SeasonReservationSwitcherState
     ).showSnackBar(const SnackBar(content: Text('已取消季预约')));
   }
 
-  Future<void> _refresh() async {
+  Future<void> _refresh({bool force = false}) async {
+    if (!mounted || _loading) return;
     final reservations = widget.store.seasonReservations.toList();
     final signature = _key(reservations);
-    if (signature == _signature && _fresh.isNotEmpty) return;
+    if (!force && signature == _signature && _fresh.isNotEmpty) return;
     _signature = signature;
     final generation = ++_generation;
     if (mounted) setState(() => _loading = true);
@@ -903,9 +924,7 @@ class _SeasonReservationSwitcherState
           final seasons = await repository
               .seasons(reservation.drama)
               .timeout(const Duration(seconds: 20));
-          final match = seasons
-              .where((season) => season.drama.id == reservation.id)
-              .firstOrNull;
+          final match = reservation.matchSeason(seasons);
           if (match != null) refreshed[reservation.id] = match;
         } catch (_) {
           // 单条系列数据失败不影响其他预约卡片。

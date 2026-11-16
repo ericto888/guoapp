@@ -353,15 +353,39 @@ class SeasonReservation {
   final String unit;
   final String onlineDate;
   final int reservedAt;
+
   /// 上线提醒已发送时间戳（毫秒）；0 表示尚未提醒。
   final int notifiedAt;
+
   /// 已成功同步过一次官方预约元数据的时间；0 表示尚未同步。
   final int metadataRefreshedAt;
 
   String get id => drama.id;
   String get label => season > 0 ? '第$season$unit' : drama.title;
-  String get baseTitle =>
-      drama.title.replaceAll(RegExp(r'第[0-9一二两三]+[季部].*$'), '').trim();
+  String get baseTitle => _stripSeasonSuffix(drama.title);
+
+  static String _stripSeasonSuffix(String title) =>
+      title.replaceAll(RegExp(r'第[0-9一二两三]+[季部].*$'), '').trim();
+
+  /// 在官方季列表里定位这条预约对应的季。
+  ///
+  /// 优先按 book_id 精确匹配。红果的正片上线时可能更换 series_id
+  /// （预约时是待上线条目，上线后重新挂到系列包里），此时退回
+  /// 「季号 + 基础标题」匹配，并且必须唯一命中，避免误认同名作品。
+  DramaSeason? matchSeason(Iterable<DramaSeason> seasons) {
+    for (final season in seasons) {
+      if (season.drama.id == id) return season;
+    }
+    if (season < 1 || baseTitle.isEmpty) return null;
+    final candidates = seasons
+        .where(
+          (season) =>
+              season.number == this.season &&
+              _stripSeasonSuffix(season.drama.title) == baseTitle,
+        )
+        .toList();
+    return candidates.length == 1 ? candidates.single : null;
+  }
 
   /// 是否已到上线日（按本地日期判断）。
   bool get isLive {
