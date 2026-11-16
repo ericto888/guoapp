@@ -72,14 +72,18 @@ func TestParseHongguoAlbumSeasonRowsUsesPublishTime(t *testing.T) {
 	if seasons[0].SeasonIndex != 1 || seasons[0].Episodes != 114 {
 		t.Fatalf("第一季解析异常: %+v", seasons[0])
 	}
-	if want := time.Unix(1785454080, 0).In(time.Local).Format("2006-01-02"); seasons[0].OnlineDate != want {
+	if want := time.Unix(1785454080, 0).In(providerChinaTime).Format("2006-01-02"); seasons[0].OnlineDate != want {
 		t.Fatalf("第一季上线日期应为 %s，实际 %s", want, seasons[0].OnlineDate)
 	}
 	if seasons[1].SeasonIndex != 14 {
 		t.Fatalf("第十四季季号应为 14，实际 %d", seasons[1].SeasonIndex)
 	}
-	if want := time.Unix(publish, 0).In(time.Local).Format("2006-01-02"); seasons[1].OnlineDate != want {
+	if want := time.Unix(publish, 0).In(providerChinaTime).Format("2006-01-02"); seasons[1].OnlineDate != want {
 		t.Fatalf("第十四季上线日期应为 %s，实际 %s", want, seasons[1].OnlineDate)
+	}
+	// 1794697681 = 2026-11-14 23:08 UTC，中国时区是 11-15；不能按 UTC 算成 11-14。
+	if seasons[1].OnlineDate != "2026-11-15" {
+		t.Fatalf("第十四季上线日期应为 2026-11-15，实际 %s", seasons[1].OnlineDate)
 	}
 }
 

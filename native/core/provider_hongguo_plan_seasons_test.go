@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestParseHongguoPlanSeasonsOfficialSeries(t *testing.T) {
@@ -12,20 +13,20 @@ func TestParseHongguoPlanSeasonsOfficialSeries(t *testing.T) {
 		"data": []any{
 			map[string]any{
 				"show_type": 547,
-				"has_more": "0",
+				"has_more":  "0",
 				"book_data": []any{
 					map[string]any{"book_name": "持械入宋", "author": "茶根儿"},
 				},
 				"video_data": []any{
 					map[string]any{
-						"series_id":    "7671966197985856536",
-						"title":        "持械入宋：第一季",
-						"season_index": 1,
-						"episode_cnt":  100,
+						"series_id":          "7671966197985856536",
+						"title":              "持械入宋：第一季",
+						"season_index":       1,
+						"episode_cnt":        100,
 						"first_visible_time": "1794700800",
-						"cover":        "https://example.test/1.jpg",
-						"video_desc":   "第一季简介",
-						"disable_play": false,
+						"cover":              "https://example.test/1.jpg",
+						"video_desc":         "第一季简介",
+						"disable_play":       false,
 					},
 					map[string]any{
 						"series_id":    "7676706788724460568",
@@ -97,7 +98,6 @@ func TestParseHongguoPlanSeasonsDropsDisabledPaidSeasons(t *testing.T) {
 		t.Fatalf("upcoming season must be kept: %+v", seasons[1])
 	}
 }
-
 
 func TestParseHongguoPlanSeasonsKeepsSameTitleAuthorGroupsSeparate(t *testing.T) {
 	makeGroup := func(ids []string, prefix string) map[string]any {
@@ -183,6 +183,25 @@ func containsHongguoTestID(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func TestHongguoUpcomingDateKeepsTodayAndUsesChinaTime(t *testing.T) {
+	row := map[string]any{"sub_title_list": []any{
+		map[string]any{"content": "预计11月15日上线"},
+	}}
+	// 当天不能顺延到明年。
+	if got := hongguoUpcomingDateAt(row, time.Date(2026, 11, 15, 10, 0, 0, 0, providerChinaTime)); got != "2026-11-15" {
+		t.Fatalf("same day = %q", got)
+	}
+	// UTC 的 11-14 23:30 在中国已是 11-15，必须按中国时区算。
+	utc := time.Date(2026, 11, 14, 23, 30, 0, 0, time.UTC)
+	if got := hongguoUpcomingDateAt(row, utc); got != "2026-11-15" {
+		t.Fatalf("utc now = %q", got)
+	}
+	// 已经过去才顺延一年。
+	if got := hongguoUpcomingDateAt(row, time.Date(2026, 11, 16, 0, 30, 0, 0, providerChinaTime)); got != "2027-11-15" {
+		t.Fatalf("passed date = %q", got)
+	}
 }
 
 func TestHongguoPlanSeasonsRejectsInvalidID(t *testing.T) {

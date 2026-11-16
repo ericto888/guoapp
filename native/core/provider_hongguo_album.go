@@ -212,6 +212,8 @@ func parseHongguoAlbumSeasonRows(result map[string]any, ids []string) []hongguoP
 
 // hongguoAlbumPublishDate 取 base_info.publish_time 的真实上线日期。
 // 待上线季（episodes=0）的时间戳是查询时刻，不能当作上线日期，直接留空。
+// 固定按中国时区换算：iOS 上 Go 的 time.Local 可能是 UTC，直接用 Local
+// 会把 11-15 07:08 算成 11-14。
 func hongguoAlbumPublishDate(base map[string]any, episodes int) string {
 	if episodes <= 0 {
 		return ""
@@ -220,7 +222,7 @@ func hongguoAlbumPublishDate(base map[string]any, episodes int) string {
 	if err != nil || seconds <= 0 {
 		return ""
 	}
-	return time.Unix(seconds, 0).In(time.Local).Format("2006-01-02")
+	return time.Unix(seconds, 0).In(providerChinaTime).Format("2006-01-02")
 }
 
 // mergeHongguoUpcomingSeasons 把 plan/v 里尚未进入系列包的季（待上线季）追加到批量结果。

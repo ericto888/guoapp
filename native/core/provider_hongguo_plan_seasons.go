@@ -207,7 +207,6 @@ func parseHongguoPlanSeasons(result map[string]any, bookID string) ([]hongguoPla
 	return seasons, hasMore == "1" || hasMore == "true", nextOffset
 }
 
-
 // hongguoPlanSeasonOnlineDate 按季状态解析上线日期。
 // 已上线季只使用红果明确的实际上线元数据；待上线季继续使用预约文案中的预计日期。
 // 不使用 create_time，避免把作品创建时间误当成实际上线时间。
@@ -220,8 +219,16 @@ func hongguoPlanSeasonOnlineDate(row map[string]any, episodes int) string {
 
 // hongguoUpcomingDate 从待上线季的 sub_title_list 提取预计上线日期。
 // 「预计11月15日上线」→ 当年年份补全为 yyyy-MM-dd；已过则顺延一年。
+// 只按日期比较：当天仍算今年（用时刻比较会把当天的预计日期错误顺延到明年），
+// 并且固定按中国时区，避免 iOS 上 time.Local 为 UTC 导致跨天。
 func hongguoUpcomingDate(row map[string]any) string {
+	return hongguoUpcomingDateAt(row, time.Now())
+}
+
+func hongguoUpcomingDateAt(row map[string]any, now time.Time) string {
 	subs := anyList(row["sub_title_list"])
+	now = now.In(providerChinaTime)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, providerChinaTime)
 	for _, item := range subs {
 		text, ok := item.(map[string]any)
 		if !ok {
@@ -236,9 +243,8 @@ func hongguoUpcomingDate(row map[string]any) string {
 		if err1 != nil || err2 != nil || month < 1 || month > 12 || day < 1 || day > 31 {
 			continue
 		}
-		now := time.Now()
-		date := time.Date(now.Year(), time.Month(month), day, 0, 0, 0, 0, time.Local)
-		if date.Before(now) {
+		date := time.Date(now.Year(), time.Month(month), day, 0, 0, 0, 0, providerChinaTime)
+		if date.Before(today) {
 			date = date.AddDate(1, 0, 0)
 		}
 		return date.Format("2006-01-02")
